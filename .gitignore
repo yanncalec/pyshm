@@ -1,0 +1,13 @@
+obslt/
+__pycache__/
+obslt/*
+__pycache__/*
+*.pyc
+*.old
+Untitled.ipynb
+script/.ipynb_checkpoints/
+script/.ipynb_checkpoints/*
+dashboard/bower_components/
+dashboard/static/*
+.ipynb_checkpoints/
+.ipynb_checkpoints/*
