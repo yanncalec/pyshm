@@ -15,7 +15,7 @@ import json
 import pandas
 import colorama
 
-from OSMOS import OSMOS
+from Pyshm import OSMOS
 
 # import warnings
 # warnings.filterwarnings("ignore", category=DeprecationWarning)

@@ -1,3 +1,9 @@
+"""
+.. module:: OSMOS
+   :platform: Unix, Windows, Mac
+   :synopsis: resume
+"""
+
 import json
 import dateutil
 import datetime
@@ -11,7 +17,6 @@ import scipy
 from scipy import interpolate
 
 import pandas as pd
-import Seim
 
 from colorama import Fore, Back, Style
 
@@ -303,17 +308,17 @@ def static_data_preprocessing(X0, dT=60*60,
         # The values wsize=1, thresh=5. have been tuned for OSMOS data
         # (see projets 36, 38)
         if sflag:
-            Elon0 = Seim.Tools.remove_plateau_jumps(Elon0, wsize=1, thresh=5., dratio=0.5, bflag=False)
+            Elon0 = Pyshm.Tools.remove_plateau_jumps(Elon0, wsize=1, thresh=5., dratio=0.5, bflag=False)
             if tflag:
-                Temp0 = Seim.Tools.remove_plateau_jumps(Temp0, wsize=1, thresh=5., dratio=0.5, bflag=False)
+                Temp0 = Pyshm.Tools.remove_plateau_jumps(Temp0, wsize=1, thresh=5., dratio=0.5, bflag=False)
 
         # 3. Remove obvious outliers
         # The values wsize=10, thresh=10. have been tuned for OSMOS data
         # (see projets 46/200, 44/192, 76/369)
         if oflag:
-            Elon0 = Seim.Tools.remove_plateau_jumps(Elon0, wsize=10, thresh=10., dratio=0.5, bflag=False)
+            Elon0 = Pyshm.Tools.remove_plateau_jumps(Elon0, wsize=10, thresh=10., dratio=0.5, bflag=False)
             if tflag:
-                Temp0 = Seim.Tools.remove_plateau_jumps(Temp0, wsize=10, thresh=10., dratio=0.5, bflag=False)
+                Temp0 = Pyshm.Tools.remove_plateau_jumps(Temp0, wsize=10, thresh=10., dratio=0.5, bflag=False)
 
         # 4. Completion of missing data (12h>= gaps > 2h in Time0) by Kriging
         if fflag:
@@ -328,17 +333,17 @@ def static_data_preprocessing(X0, dT=60*60,
                 p0, p1 = max(0,p-24*2), min(p+24*2,nbTime) # outter range
                 pa, pb = max(0,p-2), min(p+2,nbTime) # inner range of missing data
 
-                xobs = Seim.Tools.time2second(np.hstack([Time0[p0:pa], Time0[pb:p1]]), Time0[p0]) # position of observation
+                xobs = Pyshm.Tools.time2second(np.hstack([Time0[p0:pa], Time0[pb:p1]]), Time0[p0]) # position of observation
                 N = max(int((Time0[pb]-Time0[pa])/datetime.timedelta(0,60*60,0)), 1) # number of points on the missing interval
-                toto = Seim.Tools.time_linspace(Time0[pa], Time0[pb], N)
-                xpred = Seim.Tools.time2second(toto, Time0[p0]) # position of prediction
+                toto = Pyshm.Tools.time_linspace(Time0[pa], Time0[pb], N)
+                xpred = Pyshm.Tools.time2second(toto, Time0[p0]) # position of prediction
 
                 Time_list += toto
 
                 # apply kriging
-                tpred,_ = Seim.Tools.gp_interpl(xobs, np.hstack([Temp0[p0:pa], Temp0[pb:p1]]),
+                tpred,_ = Pyshm.Tools.gp_interpl(xobs, np.hstack([Temp0[p0:pa], Temp0[pb:p1]]),
                                                 xpred, nugget=1e-9)
-                epred,_ = Seim.Tools.gp_interpl(xobs, np.hstack([Elon0[p0:pa], Elon0[pb:p1]]),
+                epred,_ = Pyshm.Tools.gp_interpl(xobs, np.hstack([Elon0[p0:pa], Elon0[pb:p1]]),
                                                 xpred, nugget=1e-9)
 
                 Temp_list += list(tpred)
@@ -352,14 +357,14 @@ def static_data_preprocessing(X0, dT=60*60,
 
         # 5. Re-sampling
         if rflag:
-            Temp1, Time1 = Seim.Tools.interpl_timeseries(Time0, Temp0, dtuple=(0, dT, 0), method='spline', rounded=True)
-            Elon1, _     = Seim.Tools.interpl_timeseries(Time0, Elon0, dtuple=(0, dT, 0), method='spline', rounded=True)
+            Temp1, Time1 = Pyshm.Tools.interpl_timeseries(Time0, Temp0, dtuple=(0, dT, 0), method='spline', rounded=True)
+            Elon1, _     = Pyshm.Tools.interpl_timeseries(Time0, Elon0, dtuple=(0, dT, 0), method='spline', rounded=True)
             Temp0, Elon0, Time0 = Temp1, Elon1, Time1
 
         # 6. Step jumps detection in elongation data
         Type0 = np.ones(len(Time0), dtype=int)*100
         if jflag:
-            jidx = Seim.Tools.detect_step_jumps(Elon0, method='diff', thresh=20, mwsize=24, median=0.8)
+            jidx = Pyshm.Tools.detect_step_jumps(Elon0, method='diff', thresh=20, mwsize=24, median=0.8)
             Type0[jidx] = 101
 
         return pd.DataFrame(data = np.c_[Temp0, Elon0, Type0],
@@ -397,7 +402,7 @@ def Preprocessing_by_location(Data, MinDataLength=10*24,
         X0 = Data[Data.Type==1] # retrieve data
 
         # Find the gap larger than the threshold (12 hours) in the time series
-        gidx0 = Seim.Tools.time_findgap(X0.index.to_pydatetime(), dtuple=(0,12*3600,0)) # gap index
+        gidx0 = Pyshm.Tools.time_findgap(X0.index.to_pydatetime(), dtuple=(0,12*3600,0)) # gap index
         gidx = np.hstack([0, gidx0, len(X0)])
 
         # Prepreocessing of continous bunch of static data
@@ -422,7 +427,7 @@ def Preprocessing_by_location(Data, MinDataLength=10*24,
     # Preprocessing of dynamic data
     if len(Data[Data.Type==2]) > 0: # if containing dynamic data
         Ddata = []
-        Didx = Seim.Tools.find_block_true(np.asarray(Data.Type==2)) # blocks of dynamic events
+        Didx = Pyshm.Tools.find_block_true(np.asarray(Data.Type==2)) # blocks of dynamic events
 
         for rng in Didx:
             Ddata.append(Data.iloc[rng[0]:rng[1]])
@@ -432,6 +437,9 @@ def Preprocessing_by_location(Data, MinDataLength=10*24,
 
 def choose_component(Data0, cnames):
     idx = cnames.find('-')
+    if idx<0:
+        raise Exception('Unrecognized component string')
+
     componentx = cnames[:idx]
     componenty = cnames[idx+1:]
 
@@ -510,12 +518,12 @@ def dynamic_data_preprocessing(X0, dT=20000):
 
     if Time0[-1]-Time0[0] >= datetime.timedelta(0,0,dT): # only for the length > sampling step
         # 1. Remove the wrong values due to synchronisation
-        Temp0 = Seim.Tools.remove_plateau_jumps(Temp0, wsize=1, thresh=5.) # threshold for synchronisation period
-        Elon0 = Seim.Tools.remove_plateau_jumps(Elon0, wsize=1, thresh=5.) # threshold for synchronisation period
+        Temp0 = Pyshm.Tools.remove_plateau_jumps(Temp0, wsize=1, thresh=5.) # threshold for synchronisation period
+        Elon0 = Pyshm.Tools.remove_plateau_jumps(Elon0, wsize=1, thresh=5.) # threshold for synchronisation period
 
         # 2. Re-sampling
-        Temp1, Time1 = Seim.Tools.interpl_timeseries(Time0, Temp0, dtuple=(0,0,dT), method='spline')
-        Elon1, _     = Seim.Tools.interpl_timeseries(Time0, Elon0, dtuple=(0,0,dT), method='spline')
+        Temp1, Time1 = Pyshm.Tools.interpl_timeseries(Time0, Temp0, dtuple=(0,0,dT), method='spline')
+        Elon1, _     = Pyshm.Tools.interpl_timeseries(Time0, Elon0, dtuple=(0,0,dT), method='spline')
 
         return pd.DataFrame(data = np.c_[Time1, Temp1, Elon1],
                             columns=["Time", "Temperature", "Elongation"])
@@ -532,7 +540,7 @@ def detect_step_jumps_events(X0, gidx, jumps=True, **kwargs):
 
     pidx = []
     for n, x in enumerate(np.split(X0, gidx)):
-        idx = Seim.Tools.detect_jumps(x, method='diff', **kwargs) #thresh=10, mwsize=24, median=0.75)
+        idx = Pyshm.Tools.detect_jumps(x, method='diff', **kwargs) #thresh=10, mwsize=24, median=0.75)
         rp = gidx[n-1] if n>0 else 0
         pidx += list(asarray(idx) + rp)
 

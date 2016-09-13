@@ -4,6 +4,7 @@ obslt/*
 __pycache__/*
 *.pyc
 *.old
+*_old
 Untitled.ipynb
 script/.ipynb_checkpoints/
 script/.ipynb_checkpoints/*
@@ -11,3 +12,9 @@ dashboard/bower_components/
 dashboard/static/*
 .ipynb_checkpoints/
 .ipynb_checkpoints/*
+build/
+dist/
+*egg-info/
+doc/build/
+doc/source/_static/
+doc/source/_templates/

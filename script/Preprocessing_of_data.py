@@ -13,7 +13,7 @@ import pickle
 import copy
 import pandas as pd
 
-from OSMOS import OSMOS
+from Pyshm import OSMOS
 
 # import warnings
 # warnings.filterwarnings("ignore", category=DeprecationWarning)

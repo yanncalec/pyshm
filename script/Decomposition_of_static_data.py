@@ -15,8 +15,7 @@ import pandas as pd
 import statsmodels.api as sm
 import numpy as np
 
-from Seim import Tools, Stat
-from OSMOS import OSMOS
+from Pyshm import Tools, Stat, OSMOS
 
 # import warnings
 # warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -87,8 +86,8 @@ def main():
             Ym = Tools.KZ_filter_pandas(Yt, mwsize, k=kzord, method='mean', causal=causal)
             parm = 'mwsize={}_kzord={}_causal={}'.format(mwsize, kzord, causal)
         elif method == 'moving_median':
-            Xm = Tools.KZ_filter(Xt, mwsize, k=kzord, method='median', causal=causal)
-            Ym = Tools.KZ_filter(Yt, mwsize, k=kzord, method='median', causal=causal)
+            Xm = Tools.KZ_filter_pandas(Xt, mwsize, k=kzord, method='median', causal=causal)
+            Ym = Tools.KZ_filter_pandas(Yt, mwsize, k=kzord, method='median', causal=causal)
             parm = 'mwsize={}_kzord={}_causal={}'.format(mwsize, kzord, causal)
         elif method == 'hp_filter':
             _, Xm = sm.tsa.filters.hpfilter(Xt, lamb=lamb)

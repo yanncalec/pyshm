@@ -10,6 +10,7 @@ from collections import namedtuple
 import warnings
 import itertools
 import copy
+import numbers
 
 import statsmodels.api as sm
 
@@ -24,12 +25,12 @@ from scipy import interpolate, stats, signal, sparse
 import numpy as np
 # from numpy import *
 
-from libs import Tools, Stat, Kalman, OSMOS
+from Pyshm import Tools, Stat, Kalman, OSMOS
 
 from colorama import Fore, Back, Style # for color output
 
 # homedir = os.path.expanduser('~')+"/Sivienn/Projects/Osmos/"
-homedir = os.path.expanduser('~')+"/OSMOSDIR/"
+homedir = os.path.expanduser('~')+"/OSMOS/"
 datadir = homedir+"/Data/"
 outdir = homedir+"/Outputs/"
 # figdir = outdir+"/figures/"
@@ -42,9 +43,8 @@ outdir = homedir+"/Outputs/"
 
 # import matplotlib.colors as colors
 # color_list = list(colors.cnames.keys())
-color_list = ['green', 'pink', 'lightgrey', 'magenta', 'cyan', 'red', 'yelow',
-              'purple', 'blue', 'mediumorchid', 'chocolate', 'blue',
-              'blueviolet', 'brown']
+color_list = ['red', 'green', 'blue', 'magenta', 'cyan', 'pink', 'lightgrey', 'yelow',
+              'purple', 'mediumorchid', 'chocolate', 'blue', 'blueviolet', 'brown']
 
 # from bokeh.client import push_session
 # from bokeh.plotting import figure, curdoc
