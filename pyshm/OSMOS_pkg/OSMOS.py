@@ -20,6 +20,8 @@ import pandas as pd
 
 from colorama import Fore, Back, Style
 
+from .. import Tools
+
 class LIRIS:
     """Class for describing a LIRIS object
     """
@@ -38,13 +40,21 @@ def update_LIRIS_data_by_project(token, session, PID, pname, verbose=0):
     PID : project key id
     pname : folder name for downloaded data
     verbose : print message
+
+    Return
+    ------
+    A dictionary with the locationkeyid as keys, D[loc]=True of False indicating the presence of
+    new data at this location.
     """
+
     payload = {"token": token,
                "action": "getlirisfromproject",
                "data": {"projectkeyid": PID}}
     r = session.post("https://client.osmos-group.com/server/application.php",
                      data=json.dumps(payload))
     response0 = json.loads(r.text)
+
+    nflag = False  # indicator of new data
 
     # If the response from the server is successful and the project exists
     if 'result' in response0.keys() and response0['result'] == 'SUCCESS' and response0['data']['count'] > 0:
@@ -72,15 +82,15 @@ def update_LIRIS_data_by_project(token, session, PID, pname, verbose=0):
                 if verbose > 1:
                     print("Official operation period: from {} to {}".format(t_start0, t_end0))
 
-                datadir = pname+'/{}'.format(loc) # Directory for saving the data of this location
-                Flist = glob.glob(datadir+'/Raw_*.pkl'.format(liris.locationkeyid)) # already sorted in increasing order
+                datadir = os.path.join(pname, '{}'.format(loc)) # Directory for saving the data of this location
+                Flist = glob.glob(os.path.join(datadir,'Raw_*.pkl'.format(liris.locationkeyid))) # previously downloaded data, already sorted in increasing order
                 if len(Flist) > 0:
                     fname = Flist[-1]
                     idx = fname.rfind('[')
                     t_start0 = dateutil.parser.parse(fname[idx+5:idx+24])
                     t_start0 += datetime.timedelta(0, 1) # new start time is 1s after
 
-                Measures0 = []
+                Measures0 = [] # for saving of the download
                 t0 = t_start0
 
                 while t0 < min(datetime.datetime.today(), t_end0): # for a valide time range
@@ -88,7 +98,7 @@ def update_LIRIS_data_by_project(token, session, PID, pname, verbose=0):
                     timeinterval = [t0, t0+datetime.timedelta(30,0)]
 
                     if verbose > 1:
-                        print("Downloading the data of the period from {} to {}".
+                        print("Requesting the data of the period from {} to {}".
                               format(timeinterval[0], timeinterval[1]))
 
                     location = [{"locationkeyid": liris.locationkeyid,
@@ -112,26 +122,29 @@ def update_LIRIS_data_by_project(token, session, PID, pname, verbose=0):
                     Measures0 += response['data']['datas'][0]['measures']
                     t0 += datetime.timedelta(30, 0)
 
-                if len(Measures0) > 0:
-                    # Retrieve the physical period of the new data
+                if len(Measures0) > 0:  # if the result of requests is not empty
+                    # Retrieve the real period of the new data
                     t_start1 = dateutil.parser.parse(Measures0[0][0])
                     t_end1 = dateutil.parser.parse(Measures0[-1][0])
 
-                    if verbose > 1:
-                        print('Updated data: from {} to {}'.format(t_start1, t_end1))
-
                     # Save data only when containing more than one day of data
                     if t_end1-t_start1 > datetime.timedelta(1):
+                        nflag = True  # Set the indicator of new data
+
+                        if verbose > 0:
+                            print(colorama.Fore.GREEN + 'New data (>24h) updated: from {} to {}'.format(t_start1, t_end1))
+                            print(colorama.Style.RESET_ALL)
+
                         try:
                             os.makedirs(datadir)
                         except OSError:
                             pass
 
-                        fname = datadir+'/Raw_[Start_{}]_[End_{}]].pkl'.format(t_start1, t_end1)
+                        fname = os.path.join(datadir, 'Raw_[Start_{}]_[End_{}]].pkl'.format(t_start1, t_end1))
                         with open(fname, 'wb') as fp:
                             pickle.dump({'LIRIS':record, 'Data':Measures0},  # record is the LIRIS information
                                             fp, protocol=pickle.HIGHEST_PROTOCOL)
-
+        return nflag
     else:
         raise Exception('Failed response from the server or empty project.')
 
@@ -140,7 +153,7 @@ def assemble_to_pandas(datadir):
     """
     Assemble splitted OSMOS data (of one location) into a single pandas data sheet.
 
-    The output is a pickle file named Raw_Latest.pkl in the given datadir.
+    The output is a pickle file named Raw.pkl in the given datadir.
 
     Paramters
     ---------
@@ -148,7 +161,7 @@ def assemble_to_pandas(datadir):
         name of the folder where the raw splitted OSMOS data are stored. This folder
         is organized in sub folders named by the location key id.
     """
-    pnames = glob.glob(datadir+'/*')
+    pnames = glob.glob(os.path.join(datadir, '*'))
 
     if len(pnames) > 0 :
         Data = {}  # for raw data of pandas format, a dictionary, referred by location key id
@@ -156,16 +169,16 @@ def assemble_to_pandas(datadir):
         Liris = {}
 
         for p in pnames:
-            if os.path.isdir(p):
+            if os.path.isdir(p):  # for all sub-folders
                 Sdic = []
 
-                idx = p.rfind('/')
+                idx = p.rfind(os.path.sep) # path separator: '/' on Linux, '\' on Windows
                 try:
                     loc = int(p[idx+1:])  # location key ID
                 except:
                     continue
 
-                fnames = glob.glob(p+'/Raw_*.pkl')
+                fnames = glob.glob(os.path.join(p, 'Raw_*.pkl'))
 
                 # assamble the splitted files
                 if len(fnames)>0:
@@ -178,8 +191,9 @@ def assemble_to_pandas(datadir):
                     Data[loc] = raw2pandas(Sdic) # Convert to Pandas datasheet
                     Static_Data[loc] = Data[loc][Data[loc].Type==1]
 
-        with open(datadir+'/Raw.pkl', 'wb') as fp:
-            pickle.dump({'LIRIS':Liris, 'Data':Data, 'Static_Data':Static_Data},  # record is the LIRIS information
+        with open(os.path.join(datadir,'Raw.pkl'), 'wb') as fp:
+            # record is the LIRIS information
+            pickle.dump({'LIRIS':Liris, 'Data':Data, 'Static_Data':Static_Data},
                         fp, protocol=pickle.HIGHEST_PROTOCOL)
     else:
         raise Exception('Empty project.')
@@ -308,17 +322,17 @@ def static_data_preprocessing(X0, dT=60*60,
         # The values wsize=1, thresh=5. have been tuned for OSMOS data
         # (see projets 36, 38)
         if sflag:
-            Elon0 = Pyshm.Tools.remove_plateau_jumps(Elon0, wsize=1, thresh=5., dratio=0.5, bflag=False)
+            Elon0 = Tools.remove_plateau_jumps(Elon0, wsize=1, thresh=5., dratio=0.5, bflag=False)
             if tflag:
-                Temp0 = Pyshm.Tools.remove_plateau_jumps(Temp0, wsize=1, thresh=5., dratio=0.5, bflag=False)
+                Temp0 = Tools.remove_plateau_jumps(Temp0, wsize=1, thresh=5., dratio=0.5, bflag=False)
 
         # 3. Remove obvious outliers
         # The values wsize=10, thresh=10. have been tuned for OSMOS data
         # (see projets 46/200, 44/192, 76/369)
         if oflag:
-            Elon0 = Pyshm.Tools.remove_plateau_jumps(Elon0, wsize=10, thresh=10., dratio=0.5, bflag=False)
+            Elon0 = Tools.remove_plateau_jumps(Elon0, wsize=10, thresh=10., dratio=0.5, bflag=False)
             if tflag:
-                Temp0 = Pyshm.Tools.remove_plateau_jumps(Temp0, wsize=10, thresh=10., dratio=0.5, bflag=False)
+                Temp0 = Tools.remove_plateau_jumps(Temp0, wsize=10, thresh=10., dratio=0.5, bflag=False)
 
         # 4. Completion of missing data (12h>= gaps > 2h in Time0) by Kriging
         if fflag:
@@ -333,17 +347,17 @@ def static_data_preprocessing(X0, dT=60*60,
                 p0, p1 = max(0,p-24*2), min(p+24*2,nbTime) # outter range
                 pa, pb = max(0,p-2), min(p+2,nbTime) # inner range of missing data
 
-                xobs = Pyshm.Tools.time2second(np.hstack([Time0[p0:pa], Time0[pb:p1]]), Time0[p0]) # position of observation
+                xobs = Tools.time2second(np.hstack([Time0[p0:pa], Time0[pb:p1]]), Time0[p0]) # position of observation
                 N = max(int((Time0[pb]-Time0[pa])/datetime.timedelta(0,60*60,0)), 1) # number of points on the missing interval
-                toto = Pyshm.Tools.time_linspace(Time0[pa], Time0[pb], N)
-                xpred = Pyshm.Tools.time2second(toto, Time0[p0]) # position of prediction
+                toto = Tools.time_linspace(Time0[pa], Time0[pb], N)
+                xpred = Tools.time2second(toto, Time0[p0]) # position of prediction
 
                 Time_list += toto
 
                 # apply kriging
-                tpred,_ = Pyshm.Tools.gp_interpl(xobs, np.hstack([Temp0[p0:pa], Temp0[pb:p1]]),
+                tpred,_ = Tools.gp_interpl(xobs, np.hstack([Temp0[p0:pa], Temp0[pb:p1]]),
                                                 xpred, nugget=1e-9)
-                epred,_ = Pyshm.Tools.gp_interpl(xobs, np.hstack([Elon0[p0:pa], Elon0[pb:p1]]),
+                epred,_ = Tools.gp_interpl(xobs, np.hstack([Elon0[p0:pa], Elon0[pb:p1]]),
                                                 xpred, nugget=1e-9)
 
                 Temp_list += list(tpred)
@@ -357,14 +371,14 @@ def static_data_preprocessing(X0, dT=60*60,
 
         # 5. Re-sampling
         if rflag:
-            Temp1, Time1 = Pyshm.Tools.interpl_timeseries(Time0, Temp0, dtuple=(0, dT, 0), method='spline', rounded=True)
-            Elon1, _     = Pyshm.Tools.interpl_timeseries(Time0, Elon0, dtuple=(0, dT, 0), method='spline', rounded=True)
+            Temp1, Time1 = Tools.interpl_timeseries(Time0, Temp0, dtuple=(0, dT, 0), method='spline', rounded=True)
+            Elon1, _     = Tools.interpl_timeseries(Time0, Elon0, dtuple=(0, dT, 0), method='spline', rounded=True)
             Temp0, Elon0, Time0 = Temp1, Elon1, Time1
 
         # 6. Step jumps detection in elongation data
         Type0 = np.ones(len(Time0), dtype=int)*100
         if jflag:
-            jidx = Pyshm.Tools.detect_step_jumps(Elon0, method='diff', thresh=20, mwsize=24, median=0.8)
+            jidx = Tools.detect_step_jumps(Elon0, method='diff', thresh=20, mwsize=24, median=0.8)
             Type0[jidx] = 101
 
         return pd.DataFrame(data = np.c_[Temp0, Elon0, Type0],
@@ -402,7 +416,7 @@ def Preprocessing_by_location(Data, MinDataLength=10*24,
         X0 = Data[Data.Type==1] # retrieve data
 
         # Find the gap larger than the threshold (12 hours) in the time series
-        gidx0 = Pyshm.Tools.time_findgap(X0.index.to_pydatetime(), dtuple=(0,12*3600,0)) # gap index
+        gidx0 = Tools.time_findgap(X0.index.to_pydatetime(), dtuple=(0,12*3600,0)) # gap index
         gidx = np.hstack([0, gidx0, len(X0)])
 
         # Prepreocessing of continous bunch of static data
@@ -427,7 +441,7 @@ def Preprocessing_by_location(Data, MinDataLength=10*24,
     # Preprocessing of dynamic data
     if len(Data[Data.Type==2]) > 0: # if containing dynamic data
         Ddata = []
-        Didx = Pyshm.Tools.find_block_true(np.asarray(Data.Type==2)) # blocks of dynamic events
+        Didx = Tools.find_block_true(np.asarray(Data.Type==2)) # blocks of dynamic events
 
         for rng in Didx:
             Ddata.append(Data.iloc[rng[0]:rng[1]])
@@ -518,12 +532,12 @@ def dynamic_data_preprocessing(X0, dT=20000):
 
     if Time0[-1]-Time0[0] >= datetime.timedelta(0,0,dT): # only for the length > sampling step
         # 1. Remove the wrong values due to synchronisation
-        Temp0 = Pyshm.Tools.remove_plateau_jumps(Temp0, wsize=1, thresh=5.) # threshold for synchronisation period
-        Elon0 = Pyshm.Tools.remove_plateau_jumps(Elon0, wsize=1, thresh=5.) # threshold for synchronisation period
+        Temp0 = Tools.remove_plateau_jumps(Temp0, wsize=1, thresh=5.) # threshold for synchronisation period
+        Elon0 = Tools.remove_plateau_jumps(Elon0, wsize=1, thresh=5.) # threshold for synchronisation period
 
         # 2. Re-sampling
-        Temp1, Time1 = Pyshm.Tools.interpl_timeseries(Time0, Temp0, dtuple=(0,0,dT), method='spline')
-        Elon1, _     = Pyshm.Tools.interpl_timeseries(Time0, Elon0, dtuple=(0,0,dT), method='spline')
+        Temp1, Time1 = Tools.interpl_timeseries(Time0, Temp0, dtuple=(0,0,dT), method='spline')
+        Elon1, _     = Tools.interpl_timeseries(Time0, Elon0, dtuple=(0,0,dT), method='spline')
 
         return pd.DataFrame(data = np.c_[Time1, Temp1, Elon1],
                             columns=["Time", "Temperature", "Elongation"])
@@ -540,7 +554,7 @@ def detect_step_jumps_events(X0, gidx, jumps=True, **kwargs):
 
     pidx = []
     for n, x in enumerate(np.split(X0, gidx)):
-        idx = Pyshm.Tools.detect_jumps(x, method='diff', **kwargs) #thresh=10, mwsize=24, median=0.75)
+        idx = Tools.detect_jumps(x, method='diff', **kwargs) #thresh=10, mwsize=24, median=0.75)
         rp = gidx[n-1] if n>0 else 0
         pidx += list(asarray(idx) + rp)
 
