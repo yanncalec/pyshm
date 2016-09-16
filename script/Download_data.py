@@ -20,7 +20,7 @@ def main():
     (options, args) = parser.parse_args()
 
     if len(args) < 1:
-        print(usage_msg)
+        print('\nUsage: '+usage_msg)
         sys.exit(0)
     else:  # check datadir
         datadir = args[0]

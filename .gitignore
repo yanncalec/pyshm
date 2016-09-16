@@ -2,6 +2,7 @@ obslt/
 obslt/*
 __pycache__/
 __pycache__/*
+*.bak
 *.pyc
 *.old
 *_old

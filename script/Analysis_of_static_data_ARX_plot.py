@@ -1,50 +1,17 @@
 #!/usr/bin/env python
 
-import sys
-import os
-# import glob
+import sys, os
 from optparse import OptionParser       # command line arguments parser
-import pickle
-# import datetime
-# import dateutil
-# from collections import namedtuple
-# import warnings
-# import itertools
-# import copy
-
-from Pyshm import OSMOS, Tools, Stat
-
-import pandas as pd
-# import statsmodels.api as sm
-import numpy as np
-from numpy.linalg import norm
-
-import warnings
-warnings.filterwarnings("ignore", category=DeprecationWarning)
-
-# Hide annoying trace back message
-# sys.excepthook = lambda exctype,exc,traceback : print("{}: {}".format(exctype.__name__,exc))
-
-import matplotlib.pyplot as plt
-# from matplotlib.pyplot import figure
-
-import matplotlib.colors as colors
-# color_list = list(colors.cnames.keys())
-color_list = ['red', 'green', 'blue', 'magenta', 'cyan', 'pink', 'lightgrey', 'yelow',
-              'purple', 'mediumorchid', 'chocolate', 'blue', 'blueviolet', 'brown']
-
-import mpld3
-plt.style.use('ggplot')
 
 __script__ = 'Plot results of the analysis of static data returned by ARX.'
 
 
 def main():
     # Load data
-    usage_msg = '{} [options] input_data_file [output_directory]'.format(sys.argv[0])
-    parm_msg = 'input_data_file : the file returned by the script Analysis_of_static_data-ARX.py\noutput_directory : the directory where results are saved (default: in the same directory as input_data_file).'
+    usage_msg = '{} [options] <input_data_file> [output_directory]'.format(sys.argv[0])
+    parm_msg = '  input_data_file : file returned by the script of data analysis\n  output_directory :  directory where results are saved (default: in the same directory as input_data_file).'
 
-    parser = OptionParser(usage_msg)
+    parser = OptionParser(usage=usage_msg+'\n'+parm_msg)
 
     parser.add_option('--vthresh', dest='vthresh', type='float', default=4., help='Threshold value for event detection (default=4).')
     parser.add_option('--mwsize0', dest='mwsize0', type='int', default=6, help='Size of the moving window for local statistics (default=6).')
@@ -55,22 +22,30 @@ def main():
     (options, args) = parser.parse_args()
 
     if len(args) < 1:
-        print('Usage: ' + usage_msg)
+        print('\nUsage: ' + usage_msg)
         print(parm_msg)
 
         sys.exit(0)
-    else:  # check datadir
+    else:
+        # Lazy import
+        import pickle
+        import pandas as pd
+        import numpy as np
+        import matplotlib.pyplot as plt
+        import mpld3
+        plt.style.use('ggplot')
+
         infile = args[0]
         if not os.path.isfile(infile):
             raise FileNotFoundError(infile)
-        idx0 = infile.rfind('/')+1
-        idx1 = infile.rfind('.')
+        idx1 = infile.rfind(os.path.sep)
+        idx0 = infile[:idx1].rfind(os.path.sep)+1
         loc = int(infile[idx0:idx1])
 
         if len(args) == 2:
             figdir = args[1]
         else:
-            idx = infile.rfind('/')
+            idx = infile.rfind(os.path.sep)
             figdir = infile[:idx]
 
         try:
@@ -151,7 +126,7 @@ def main():
     axa.set_title('Kernel of convolution, penalization={}'.format(penalg))
     _ = axa.set_xlim(-1,)
 
-    fig.savefig(figdir+'/{}_Kernel.pdf'.format(loc), bbox_inches='tight')
+    fig.savefig(figdir+'/Kernels.pdf', bbox_inches='tight')
     plt.close(fig)
 
     # Plot the residual
@@ -222,7 +197,7 @@ def main():
     # axa.set_title('Residual')
     # k+=1
 
-    fname = figdir+'/{}'.format(loc)
+    fname = os.path.join(figdir, 'Plots')
     fig.savefig(fname+'.pdf', bbox_inches='tight')
     mpld3.save_html(fig, fname+'.html')
     plt.close(fig)
@@ -233,5 +208,5 @@ def main():
 
 if __name__ == "__main__":
     print(__script__)
-    print()
+    # print()
     main()
