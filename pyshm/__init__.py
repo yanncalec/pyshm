@@ -1,5 +1,4 @@
-from . import Tools, Stat, Kalman
-from . import OSMOS_pkg
-# from .OSMOS_pkg import *
+from . import Tools, Stat, Models, Plot #, Kalman
+# from .OSMOS_pkg import OSMOS
 
 # del OSMOS_pkg

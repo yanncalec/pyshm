@@ -5,10 +5,10 @@
 
 
 
-Report on Osmos' Project and Documentation of pyshm
-===================================================
+Documentation of pyshm and OSMOS_pkg
+====================================
 
-.. automodule:: src
+.. automodule:: pyshm
 
 Contents:
 
@@ -16,9 +16,9 @@ Contents:
    :maxdepth: 3
 
    intro
-   preproc
-   decomp
-   script
+  ..  preproc
+  ..  decomp
+  ..  script
 
 
 This document describes the mathematical aspect of the project conducted by

@@ -1,6 +1,9 @@
-"""Steup file for pyshm package.
-
+"""Setup file for pyshm package.
 """
+
+# # Automatically install setuptools
+# from ez_setup import use_setuptools
+# use_setuptools()
 
 # Always prefer setuptools over distutils
 from setuptools import setup, find_packages
@@ -11,15 +14,16 @@ from Cython.Build import cythonize
 
 # To use a consistent encoding
 from codecs import open
-import os
+import os, sys
+import glob
 
 import numpy
 
 # Tell Distutils to use C++ compiler
-# os.environ["CC"] = "gcc"
-# os.environ["CXX"] = "g++"
-os.environ["CC"] = "gcc-6"
-os.environ["CXX"] = "g++-6"
+os.environ["CC"] = "gcc"
+os.environ["CXX"] = "g++"
+# os.environ["CC"] = "gcc-6"
+# os.environ["CXX"] = "g++-6"
 
 current_path = os.path.abspath(os.path.dirname(__file__))
 
@@ -28,14 +32,42 @@ with open(os.path.join(current_path, 'README.rst'), encoding='utf-8') as f:
     long_description = f.read()
 
 # For cython
-extentions = [Extension("*", ["pyshm/*.pyx"],
-                        # define_macros=[('CYTHON_TRACE', '1')], # for cython profiling
-                        include_dirs=[numpy.get_include()],
-                        # language="c++",
-                        libraries=[],
-                        extra_compile_args=['-fopenmp','-w'],
-                        extra_link_args=['-fopenmp']
-)]
+# must add the line in setup(...):
+#    ext_modules = cythonize(extentions),
+# in order to compile pyx files
+
+# Strange behavior of Cython:
+# if a full list of pyx filenames are given instead of the wildcard *, Cython will build a module using the keyword name (if not given, using the first filename) which includes all .so
+# It seems impossible to combine two wildcards: ["pyshm/*.pyx", "pyshm/OSMOS_pkg/*.pyx"] is not accepted
+# Note that the name of the extension must be the same as sources
+# pyshm_ext = [Extension(name="pyshm",  # the full name of the extension
+#                     # sources=["pyshm/*.py"],
+#                     sources=["pyshm/Tools.py", "pyshm/Stat.py", "pyshm/Models.py"],
+#                     # sources = glob.glob(os.path.join("pyshm", "*.py")),
+#                     include_dirs=[numpy.get_include()],
+#                     libraries=[],
+#                     # define_macros=[('CYTHON_TRACE', '1')], # for cython profiling
+#                     # language="c++",
+#                     # extra_compile_args=['-fopenmp','-w'],
+#                     # extra_link_args=['-fopenmp']
+#                     )]
+
+# 2. or explicitly construct the list of extensions like
+pyshm_ext = []
+for fname in glob.glob(os.path.join("pyshm", "*.py")):
+    idx0 = fname.rfind(os.path.sep)+1
+    idx1 = -3
+    if fname[idx0:idx1] not in ["__init__", "Misc", "Kalman", "Plot"]:
+        pyshm_ext.append(Extension(
+                        name="pyshm."+fname[idx0:idx1],  # the full name of the package must be given in order that the compiled library is correctly placed in the folder
+                        sources=[fname],
+                        include_dirs=[numpy.get_include()]))
+
+# Cythonization only for binary build
+if sys.argv[1] == 'sdist':
+    ext = []
+else:
+    ext = cythonize(pyshm_ext)
 
 
 setup(
@@ -46,10 +78,11 @@ setup(
     # https://packaging.python.org/en/latest/single_source_version.html
     version='0.1.0',
 
-    description='A Python package for data analysis of SHM in construction engineering',    long_description=long_description,
+    description='A Python package for SHM in construction engineering',
+    long_description=long_description,
 
     # The project's main homepage.
-    url='https://github.com/sivienn/pyshm',
+    # url='https://github.com/sivienn/pyshm',
 
     # Author details
     author='Han Wang',
@@ -89,13 +122,29 @@ setup(
 
     # You can just specify the packages manually here if your project is
     # simple. Or you can use find_packages().
-    # packages=find_packages(exclude=['contrib', 'docs', 'tests']),
-    packages=['pyshm'],
+    packages=find_packages(exclude=['contrib', 'docs', 'tests']),
+    # packages=['pyshm'],
     # packages = ['script'] + find_packages(exclude=[], include=['script', 'src']), # "include" works only for  folders containing a __init__.py
 
     # Alternatively, if you want to distribute just a my_module.py, uncomment
     # this:
     #   py_modules=["my_module"],
+
+    # If there are data files included in your packages that need to be
+    # installed, specify them here.  If using Python 2.6 or less, then these
+    # have to be included in MANIFEST.in as well.
+    package_data={
+        '':['*.tex', '*.txt', '*.rst'],
+        # 'pyshm': [''],
+    },
+
+    include_package_data = True,
+
+    # Although 'package_data' is the preferred approach, in some case you may
+    # need to place data files outside of your packages. See:
+    # http://docs.python.org/3.4/distutils/setupscript.html#installing-additional-files # noqa
+    # In this case, 'data_file' will be installed into '<sys.prefix>/my_data'
+    # data_files=[('data', ['data/data_file'])],
 
     # List run-time dependencies here.  These will be installed by pip when
     # your project is installed. For an analysis of "install_requires" vs pip's
@@ -104,11 +153,12 @@ setup(
     install_requires=[
     'numpy>=1.11.0',
     'scipy>=0.18.0',
-    'pandas>=0.18.0',
+    'pandas>=0.19.0',
     'matplotlib>=1.5.1',
     'mpld3>=0.2',
     # 'statsmodels>=0.6.1'
-    'cython>=0.24',
+    # 'cython>=0.25',
+    # 'bokeh>=0.12'
     # 'setuptools>=26.1.1'  # not necessary
     ],
 
@@ -121,26 +171,12 @@ setup(
         # 'test': ['coverage'],
     },
 
-    # If there are data files included in your packages that need to be
-    # installed, specify them here.  If using Python 2.6 or less, then these
-    # have to be included in MANIFEST.in as well.
-    package_data={
-        '':['*.tex', '*.txt', '*.rst'],
-        # 'pyshm': [''],
-    },
-
-    # Although 'package_data' is the preferred approach, in some case you may
-    # need to place data files outside of your packages. See:
-    # http://docs.python.org/3.4/distutils/setupscript.html#installing-additional-files # noqa
-    # In this case, 'data_file' will be installed into '<sys.prefix>/my_data'
-    # data_files=[('data', ['data/data_file'])],
-
     # To provide executable scripts, use entry points in preference to the
     # "scripts" keyword. Entry points provide cross-platform support and allow
     # pip to create the appropriate form of executable for the target platform.
-    entry_points={
-        'console_scripts': [
-            # 'pyshm=pyshm:main',
-        ],
-    },
+
+    ext_package='pyshm',  # this will put all compiled libraries in a subfolder named pyshm
+    ext_modules = ext
+    # ext_modules = cythonize(pyshm_ext)  # setuptools_cython module contain bugs
+    # cmdclass = {'build_ext': build_ext}
 )
