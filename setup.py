@@ -42,28 +42,17 @@ with open(os.path.join(current_path, 'README.rst'), encoding='utf-8') as f:
 # Note that the name of the extension must be the same as sources
 # pyshm_ext = [Extension(name="pyshm",  # the full name of the extension
 #                     # sources=["pyshm/*.py"],
-#                     sources=["pyshm/Tools.py", "pyshm/Stat.py", "pyshm/Models.py"],
-#                     # sources = glob.glob(os.path.join("pyshm", "*.py")),
-#                     include_dirs=[numpy.get_include()],
-#                     libraries=[],
-#                     # define_macros=[('CYTHON_TRACE', '1')], # for cython profiling
-#                     # language="c++",
-#                     # extra_compile_args=['-fopenmp','-w'],
-#                     # extra_link_args=['-fopenmp']
-#                     )]
+#                     sources=["pyshm/Tools.py", "pyshm/Stat.py", "pyshm/Models.py"],...)]
 
 # 2. or explicitly construct the list of extensions like
 pyshm_ext = []
-for fname in glob.glob(os.path.join("pyshm", "*.py")):
-    idx0 = fname.rfind(os.path.sep)+1
-    idx1 = -3
-    if fname[idx0:idx1] not in ["__init__", "Misc", "Kalman", "Plot"]:
-        pyshm_ext.append(Extension(
-                                name="pyshm."+fname[idx0:idx1],  # the full name of the package must be given in order that the compiled library is correctly placed in the folder
-                                sources=[fname],
+for fname in ['Tools.py', 'Models.py', 'Stat.py', 'OSMOS.py']:
+    pyshm_ext.append(Extension(name="pyshm."+fname[:-3],  # the full name of the package must be given in order that the compiled library is correctly placed in the folder
+                                sources=[os.path.join("pyshm", fname)],
                                 include_dirs=[numpy.get_include()],
+                                libraries=[],
                                 extra_compile_args=["-w"]  # turn off warning
-                        ))
+    ))
 
 # Cythonization only for binary build
 if sys.argv[1] == 'sdist':
@@ -137,7 +126,7 @@ setup(
     # have to be included in MANIFEST.in as well.
     package_data={
         '':['*.tex', '*.txt', '*.rst'],
-        # 'pyshm': [''],
+        'pyshm': ['*'],
     },
 
     include_package_data = True,
@@ -176,8 +165,15 @@ setup(
     # To provide executable scripts, use entry points in preference to the
     # "scripts" keyword. Entry points provide cross-platform support and allow
     # pip to create the appropriate form of executable for the target platform.
+    entry_points={
+        'console_scripts': [
+            'osmos_download_data = pyshm.script.Download_data:main',
+            'osmos_preprocess_static_data = pyshm.script.Preprocess_static_data:main',
+            'osmos_deconv_static_data = pyshm.script.Deconv_static_data:main'
+        ],
+    },
 
-    ext_package='pyshm',  # this will put all compiled libraries in a subfolder named pyshm
+    # ext_package='pyshm',  # this will put all compiled libraries in a subfolder named pyshm
     ext_modules = ext
     # ext_modules = cythonize(pyshm_ext)  # setuptools_cython module contain bugs
     # cmdclass = {'build_ext': build_ext}
