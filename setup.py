@@ -59,9 +59,11 @@ for fname in glob.glob(os.path.join("pyshm", "*.py")):
     idx1 = -3
     if fname[idx0:idx1] not in ["__init__", "Misc", "Kalman", "Plot"]:
         pyshm_ext.append(Extension(
-                        name="pyshm."+fname[idx0:idx1],  # the full name of the package must be given in order that the compiled library is correctly placed in the folder
-                        sources=[fname],
-                        include_dirs=[numpy.get_include()]))
+                                name="pyshm."+fname[idx0:idx1],  # the full name of the package must be given in order that the compiled library is correctly placed in the folder
+                                sources=[fname],
+                                include_dirs=[numpy.get_include()],
+                                extra_compile_args=["-w"]  # turn off warning
+                        ))
 
 # Cythonization only for binary build
 if sys.argv[1] == 'sdist':
