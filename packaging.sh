@@ -1,13 +1,14 @@
 #!/bin/bash
 # script for packaging and distribution of pyshm library.
 
-rm -rf build/ dist/
+#rm -rf build/ dist/
 pname=$(python -c "import platform; print(platform.platform())")  # platform name
-python setup.py bdist_dumb --plat-name $pname --relative --format=zip
+#echo ${pname}
+python setup.py bdist_dumb --plat-name ${pname} --relative --format=zip  # --relative fails on Windows
 
 # Manually modify the content of the package:
 # remove those .py and .c files that we want to protect the source
-cd dist
+cd ./dist
 unzip pyshm-0.1.0.${pname}.zip
 rm pyshm-0.1.0.${pname}.zip
 rm ./lib/python3.5/site-packages/pyshm/*.c

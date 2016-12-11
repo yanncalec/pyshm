@@ -140,13 +140,25 @@ def update_LIRIS_data_by_project(token, session, PID, projdir, endtime=None, ver
                         except OSError:
                             pass
 
-                        fname = os.path.join(datadir, 'Raw_[Start_{}]_[End_{}]].pkl'.format(t_start1, t_end1))
+                        fname0 = 'Raw_[Start_{}]_[End_{}]].pkl'.format(to_valid_time_format(t_start1), to_valid_time_format(t_end1))
+                        fname = os.path.join(datadir, fname0)
+                        print(fname)
                         with open(fname, 'wb') as fp:
                             pickle.dump({'LIRIS':record, 'Data':Measures0},  # record is the LIRIS information
                                         fp, protocol=pickle.HIGHEST_PROTOCOL)
         return nflag, Liris
     else:
         raise Exception('Failed response from the server or empty project.')
+
+
+def to_valid_time_format(f):
+    """Transform a datetime object to a string which can be used as a filename on Windows (and other systems).
+
+    Example:
+    '2016-12-11 17:14:30' is transformed to '2016-12-11-17H14M30S'
+    """
+    g = str(f).replace(' ', '-').replace(':','H', 1).replace(':','M', 1)+'S'#.replace('.','S', 1)
+    return g
 
 
 def assemble_to_pandas(projdir):

@@ -20,8 +20,8 @@ import glob
 import numpy
 
 # Tell Distutils to use C++ compiler
-os.environ["CC"] = "gcc"
-os.environ["CXX"] = "g++"
+# os.environ["CC"] = "gcc"
+# os.environ["CXX"] = "g++"
 # os.environ["CC"] = "gcc-6"
 # os.environ["CXX"] = "g++-6"
 
@@ -55,8 +55,14 @@ for fname in ['Tools.py', 'Models.py', 'Stat.py', 'OSMOS.py']:
     ))
 
 # Cythonization only for binary build
-if sys.argv[1] == 'sdist':
+if sys.argv[1] in ['sdist', 'develop'] :
     ext = []
+    # clear all binary files in the source folder
+    filelist = glob.glob(os.path.join("pyshm", "*.so"))
+    filelist += glob.glob(os.path.join("pyshm", "*.pyd"))
+    filelist += glob.glob(os.path.join("pyshm", "*.c"))
+    for f in filelist:
+        os.remove(f)
 else:
     ext = cythonize(pyshm_ext)
 
