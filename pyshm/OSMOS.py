@@ -36,7 +36,7 @@ def update_LIRIS_data_by_project(token, session, PID, projdir, endtime=None, ver
         PID (int): project key id.
         projdir (str): project directory.
         endtime (str): fetch data til this time, if not given fetch til today.
-        verbose (bool): print message.
+        verbose (int): print message.
     Returns:
         A bool variable indicating new data.
     """
@@ -142,7 +142,7 @@ def update_LIRIS_data_by_project(token, session, PID, projdir, endtime=None, ver
 
                         fname0 = 'Raw_[Start_{}]_[End_{}]].pkl'.format(to_valid_time_format(t_start1), to_valid_time_format(t_end1))
                         fname = os.path.join(datadir, fname0)
-                        print(fname)
+                        # print(fname)
                         with open(fname, 'wb') as fp:
                             pickle.dump({'LIRIS':record, 'Data':Measures0},  # record is the LIRIS information
                                         fp, protocol=pickle.HIGHEST_PROTOCOL)
@@ -444,7 +444,7 @@ def trend_seasonal_decomp(X0, mwsize=24, method='mean', kzord=1, causal=False, l
 
     Args:
         X0: pandas DataFrame
-        mwsize...causal: see KZ_filter()
+        mwsize...causal: see Tools.KZ_filter()
         luwsize (int): size of LU filter window
     """
     import pandas as pd

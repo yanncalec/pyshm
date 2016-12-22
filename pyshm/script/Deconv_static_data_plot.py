@@ -1,205 +1,224 @@
 #!/usr/bin/env python
 
-"""Plot results of the analysis of static data returned by deconvolution.
+"""Plot results of deconvolution of static data.
 """
 
 
-import sys, os
-from optparse import OptionParser       # command line arguments parser
+import sys, os, argparse
 
 __script__ = __doc__
 
 
+def plot_results(Xcpn, Ycpn, Yprd, Aprd, Bprd, trn_idx=None):
+    """Plot the prediction and residuals of one sensor without statistical analysis.
+
+    Args:
+        Xcpn,Ycpn: X and Y components of one sensor
+        Yprd,Aprd,Bprd: Y prediction, thermal and non-thermal contributions
+        trn_idx: training period starting and ending index
+    """
+    import matplotlib.pyplot as plt
+
+    Err = Ycpn - Yprd
+    Tidx = Xcpn.index
+
+    nfig, k = 3, 0
+    fig, axes = plt.subplots(nfig,1, figsize=(20, nfig*5), sharex=True)
+
+    # Observation and prediction
+    axa = axes[k]
+    axa.plot(Ycpn, color='b', alpha=0.5, linewidth=1, label='Elongation observation')
+    axa.plot(Yprd, color='g', alpha=0.8, linewidth=2, label='Elongation prediction')
+    axa.plot(Err, color='c', alpha=0.8, linewidth=2, label='Residual')
+    axa.legend(loc='upper left', fancybox=True, framealpha=0.5)
+    axb = axa.twinx()
+    axb.patch.set_alpha(0.0)
+    axb.plot(Xcpn, color='r', alpha=0.5, linewidth=1, label='Temperature observation')
+    axb.legend(loc='upper right', fancybox=True, framealpha=0.5)
+    # mark the training period
+    if trn_idx is not None:
+        t0, t1 = Tidx[trn_idx[0]], Tidx[trn_idx[1]-1]
+        ylim = axb.get_ylim()
+        # axa.fill_betweenx(np.arange(-100,100), t0, t1, color='c', alpha=0.2)
+        axb.fill_betweenx(ylim, t0, t1, color='c', alpha=0.2)
+        # axa.axvspan(t0, t1, color='c', alpha=0.2)
+    axa.set_title('Observations and prediction of elongation')
+    k+=1
+
+    # Prediction, Thermal and non-thermal contribution
+    axa = axes[k]
+    axa.plot(Yprd, color='g', alpha=0.8, linewidth=2, label='Elongation prediction')
+    axa.plot(Aprd, color='r', alpha=0.8, linewidth=2, label='Prediction: Thermal contribution')
+    if Bprd is None:
+        axa.set_title('Prediction and thermal contribution')
+    else:
+        axa.plot(Bprd, color='b', alpha=0.8, linewidth=2, label='Prediction: Non-thermal contribution')
+        axa.set_title('Prediction, thermal and non-thermal contributions')
+    axa.legend(loc='upper left', fancybox=True, framealpha=0.5)
+    k+=1
+
+    # Thermal and non-thermal residuals
+    axa = axes[k]
+    axa.plot(Err, color='royalblue', alpha=0.8, linewidth=2, label='Elongation residual')
+    axa.plot(Ycpn-Aprd, color='r', alpha=0.8, linewidth=2, label='Residual: Thermal contribution')
+    # axa.plot((Ycpn-Bprd), color='c', alpha=0.8, linewidth=2, label='Non-thermal residual')
+    axa.legend(loc='upper left', fancybox=True, framealpha=0.5)
+    axa.set_title('Thermal and non-thermal residuals')
+    k+=1
+    return fig, axes
+
+
+def plot_residuals(Xcpn, Ycpn, Yprd, mwsize, vthresh, Midx=None, mad=False, causal=False):
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    Err = Ycpn - Yprd
+    Tidx = Err.index
+
+    # local and global statistics
+    # mXXX for mean, sXXX for standard deviation, nXXX for normalization
+    if mad:  # use median-based estimator
+        mErr = Err.rolling(window=mwsize, min_periods=1, center=not causal).median() #.bfill()
+        sErr = 1.4826 * (Err-mErr).abs().rolling(window=mwsize, min_periods=1, center=not causal).median() #.bfill()
+    else:
+        mErr = Err.rolling(window=mwsize, min_periods=1, center=not causal).mean() #.bfill()
+        sErr = Err.rolling(window=mwsize, min_periods=1, center=not causal).std() #.bfill()
+
+    # drop the begining
+    mErr.iloc[:int(mwsize*1.1)]=np.nan
+    sErr.iloc[:int(mwsize*1.1)]=np.nan
+    # drop the missing values
+    mErr[Midx==True] = np.nan
+    sErr[Midx==True] = np.nan
+    # if Midx is not None:
+    #     for loc,val in mErr.items():
+    #         val[Midx==True] = np.nan
+    #     # sErr.iloc[:int(mwsize*1.1)]=np.nan
+    #     for loc,val in sErr.items():
+    #         val[Midx==True] = np.nan
+
+    nErr = abs(Err-mErr)/sErr  # normalized error
+
+    nfig, k = 3, 0
+    fig, axes = plt.subplots(nfig,1, figsize=(20, nfig*5), sharex=True)
+
+    # Observation and prediction
+    axa = axes[k]
+    axa.plot(Ycpn, color='b', alpha=0.5, linewidth=1, label='Elongation observation')
+    axa.plot(Yprd, color='g', alpha=0.8, linewidth=2, label='Elongation prediction')
+    axa.legend(loc='upper left', fancybox=True, framealpha=0.5)
+    axb = axa.twinx()
+    axb.patch.set_alpha(0.0)
+    axb.plot(Xcpn, color='r', alpha=0.5, linewidth=1, label='Temperature observation')
+    axb.legend(loc='upper right', fancybox=True, framealpha=0.5)
+    axa.set_title('Observations and prediction of elongation')
+    k+=1
+
+    # Residual
+    axa = axes[k]
+    axa.plot(Err, color='b', alpha=0.5, linewidth=1, label='Residual')
+    axa.plot(mErr, color='c', alpha=0.8, linewidth=2, label='Local mean')
+    axa.legend(loc='upper left', fancybox=True, framealpha=0.5)
+    axb = axa.twinx()
+    axb.patch.set_alpha(0.0)
+    axb.plot(sErr, color='r', alpha=0.8, linewidth=2, label='Local standard deviation')
+    axb.legend(loc='upper right', fancybox=True, framealpha=0.5)
+    axa.set_title('Residual and local statistics with moving window of size {}'.format(mwsize))
+    k+=1
+
+    # Normalized residual
+    axa = axes[k]
+    axa.plot(nErr, color='r', alpha=0.8, linewidth=1, label='Normalized residual')
+    # axa.set_ylim((0,6))
+    axa.fill_between(Tidx, 0, vthresh, color='c', alpha=0.2)
+    axa.set_title('Normalized residual: (error-mean)/std')
+    k+=1
+
+    return fig, axes
+
+
 def main():
     # Load data
-    usage_msg = '{} [options] <input_data_file> [output_directory]'.format(sys.argv[0])
-    parm_msg = '\tinput_data_file : file returned by the script of data analysis\n\toutput_directory :  directory where results are saved (default: in the same folder as input_data_file).'
+    usage_msg = '%(prog)s [options] <infile> [outdir]'
 
-    parser = OptionParser(usage=usage_msg+'\n'+parm_msg)
+    parser = argparse.ArgumentParser(description=__script__, usage=usage_msg)
 
-    parser.add_option('--vthresh', dest='vthresh', type='float', default=4., help='Threshold value for event detection (default=4).')
-    parser.add_option('--mwsize0', dest='mwsize0', type='int', default=6, help='Size of the moving window for local statistics (default=6).')
-    parser.add_option('--mwsize1', dest='mwsize1', type='int', default=24*10, help='Size of the moving window for global statistics (default=24*10).')
-    parser.add_option('--mad', dest='mad', action='store_true', default=False, help='Use median based estimator (default: use empirical estimator).')
-    parser.add_option('-v', '--verbose', dest='verbose', action='store_true', default=False, help='Print message.')
+    parser.add_argument('infile', type=str, help='file returned by the script of data analysis')
+    parser.add_argument('outdir', nargs='?', type=str, default=None, help='directory where figures are saved (default: in the same folder as infile).')
 
-    (options, args) = parser.parse_args()
+    parser.add_argument('--vthresh', dest='vthresh', type=float, default=3., help='Threshold value for event detection (default=4).')
+    parser.add_argument('--mwsize', dest='mwsize', type=int, default=24, help='Size of the moving window for local statistics (default=24).')
+    parser.add_argument('--mad', dest='mad', action='store_true', default=False, help='Use median based estimator (default: use empirical estimator).')
+    parser.add_argument('--causal', dest='causal', action='store_true', default=False, help='Use causal window (default: non causal).')
+    parser.add_argument('-v', '--verbose', dest='verbose', action='count', default=False, help='Print message.')
 
-    if len(args) < 1:
-        print('Usage: ' + usage_msg)
-        print(parm_msg)
+    options = parser.parse_args()
 
-        sys.exit(0)
+    # Lazy import
+    import pickle
+    import pandas as pd
+    import numpy as np
+    import matplotlib.pyplot as plt
+    import mpld3
+    plt.style.use('ggplot')
+
+    if not os.path.isfile(options.infile):
+        raise FileNotFoundError(options.infile)
+
+    # output directory for figures
+    if options.outdir is not None:
+        figdir0 = options.outdir
     else:
-        # Lazy import
-        import pickle
-        import pandas as pd
-        import numpy as np
-        import matplotlib.pyplot as plt
-        import mpld3
-        plt.style.use('ggplot')
-
-        infile = args[0]
-        if not os.path.isfile(infile):
-            raise FileNotFoundError(infile)
-
-        # loc = int(args[1])
-
-        if len(args)==2:
-            figdir0 = args[1]
-        else:
-            idx = infile.rfind(os.path.sep)
-            figdir0 = infile[:idx]
+        idx = options.infile.rfind(os.path.sep)
+        figdir0 = options.infile[:idx]
 
     # Load raw data
-    with open(infile, 'rb') as fp:
+    with open(options.infile, 'rb') as fp:
         Res = pickle.load(fp)
 
     Xcpn = Res['Xcpn']  # Component of temperature
     Ycpn = Res['Ycpn']  # Component of elongation
     Yprd = Res['Yprd']  # Prediction of elongation
     Yerr = Res['Yerr']  # Error of prediction
-    Aprd = Res['Tprd']  # Contribution of first group of inputs
-    Bprd = Res['Eprd']  # Contribution of second group of inputs
+    Aprd = Res['Aprd']  # Contribution of first group of inputs
+    Bprd = Res['Bprd']  # Contribution of second group of inputs
     saved_options=Res['options']  # options of parameters
     Mxd = Res['Mxd']  # Objects of deconvolution model
     Midx = Res['Midx']  # Indicator of missing values
+    # print(len(Midx), len(Xcpn))
+    Tidx = Xcpn.index  # Time index
 
-    Tidx = Xcpn.index
-
-    sidx = saved_options.sidx
+    trn_idx = saved_options.trn_idx
     Ntrn = saved_options.Ntrn
     component = saved_options.component
 
-    # local and global statistics
-    if options.mad:  # use median-based estimator
-        mErr0 = Err.rolling(window=options.mwsize0, min_periods=1).median() #.bfill()
-        sErr0 = 1.4826 * (Err-mErr0).abs().rolling(window=options.mwsize0, min_periods=1).median() #.bfill()
-        mErr1 = Err.rolling(window=options.mwsize1, min_periods=1).median() #.bfill()
-        sErr1 = 1.4826 * (Err-mErr1).abs().rolling(window=options.mwsize1, min_periods=1).median() #.bfill()
-    else:
-        mErr0 = Err.rolling(window=options.mwsize0, min_periods=1).mean() #.bfill()
-        sErr0 = Err.rolling(window=options.mwsize0, min_periods=1).std() #.bfill()
-        mErr1 = Err.rolling(window=options.mwsize1, min_periods=1).mean() #.bfill()
-        sErr1 = Err.rolling(window=options.mwsize1, min_periods=1).std() #.bfill()
-
-    # drop the begining
-    mErr0.iloc[:int(options.mwsize0*1.1)]=np.nan
-    sErr0.iloc[:int(options.mwsize0*1.1)]=np.nan
-    mErr1.iloc[:int(options.mwsize1*1.1)]=np.nan
-    sErr1.iloc[:int(options.mwsize1*1.1)]=np.nan
-
-    nErr0 = abs(Err-mErr0)/sErr0
-    nErr1 = abs(Err-mErr1)/sErr1
-
-    for ridx, loc in enumerate(saved_options.ylocs):
+    # Plot all results
+    Locations = list(Xcpn.keys())
+    for loc in Locations:
         if options.verbose:
             print('Plotting the result of location {}...'.format(loc))
-
-        g0 = Gs[:,ridx,:].mean(axis=1)
-        h0 = Hs[:,ridx,:].mean(axis=1)
 
         figdir = os.path.join(figdir0, str(loc))
         try:
             os.makedirs(figdir)
         except OSError:
             pass
-        # if not os.path.isdir(outdir):
-        #     raise FileNotFoundError(outdir)
 
-        # Plot the kernel
-        fig, axes = plt.subplots(1,2,figsize=(20,5))
-        # plot(AData[loc].index[tidx0+max(ng,nh):twsize-max(ng,nh)+tidx0], err)
-        axa = axes[0]
-        axa.plot(h0, 'b', label='Least square')
-        # axa.plot(h1, 'r', label='Penalization')
-        axa.legend(loc='upper right')
-        # axa.set_title('Kernel of auto-regression, penalization={}'.format(penalh))
-        axa.set_title('Kernel of auto-regression')
-        _ = axa.set_xlim(-1,)
-
-        axa = axes[1]
-        axa.plot(g0, 'b', label='Least square')
-        # axa.plot(g1, 'r', label='Penalization')
-        axa.legend(loc='upper right')
-        axa.set_title('Kernel of convolution')
-        _ = axa.set_xlim(-1,)
-
-        fig.savefig(figdir+'/Kernels.pdf', bbox_inches='tight')
+        if saved_options.lagy > 0: # if the non-thermal contribution exists
+            fig, axes = plot_results(Xcpn[loc], Ycpn[loc], Yprd[loc], Aprd[loc], Bprd[loc], trn_idx)
+        else:
+            fig, axes = plot_results(Xcpn[loc], Ycpn[loc], Yprd[loc], Aprd[loc], None, trn_idx)
+        plt.suptitle('Location {}, {} component'.format(loc, component), position=(0.5,1.1),fontsize=20)
+        plt.tight_layout()
+        fname = os.path.join(figdir, 'Results')
+        fig.savefig(fname+'.pdf', bbox_inches='tight')
+        mpld3.save_html(fig, fname+'.html')
         plt.close(fig)
 
-        # Plot the residual
-        nfig, k = 5, 0
-        fig, axes = plt.subplots(nfig,1, figsize=(20, nfig*5), sharex=True)
-
-        # Raw data
-        axa = axes[k]
-        axa.plot(Yall[loc], color='b', alpha=0.5, label='Elongation')
-        axb = axa.twinx()
-        axb.patch.set_alpha(0.0)
-        axb.plot(Xall[loc], color='r', alpha=0.5, label='Temperature')
-        axa.legend(loc='upper left')
-        axb.legend(loc='upper right')
-        axa.set_title('Signals of the location {}'.format(loc))
-        k+=1
-
-        # User-specified component and ARX-prediction
-        axa = axes[k]
-        axa.plot(Yvar[loc], color='b', alpha=0.5, linewidth=2, label='Elongation')
-        axa.plot(Yprd[loc], color='c', alpha=0.7, label='Prediction')
-        axb = axa.twinx()
-        axb.patch.set_alpha(0.0)
-        sgn = np.sign(g0[0]) if len(g0)>0 else 1  # adjust the sign of Xvar
-        axb.plot(sgn*Xvar[loc], color='r', alpha=0.5, label='Temperature')
-        axa.legend(loc='upper left')
-        axb.legend(loc='upper right')
-        t0, t1 = Tidx[sidx], Tidx[sidx+Ntrn-1]
-        # print(t0,t1)
-        # axa.fill_betweenx(np.arange(-100,100), t0, t1, color='c', alpha=0.2)
-        # axa.axvspan(t0, t1, color='c', alpha=0.2)
-        axa.set_title('{} components of the location {} (sign adjusted for the temperature)'.format(component, loc))
-        k+=1
-
-        # Normalized residual
-        axa = axes[k]
-        axa.plot(nErr1[loc])
-        # axa.set_ylim((0,6))
-        axa.fill_between(Tidx, 0, options.vthresh, color='c', alpha=0.2)
-        axa.set_title('Normalized residual: (error-mean)/std')
-        k+=1
-
-        # Local mean and standard deviation of the residual
-        axa = axes[k]
-        axa.plot(mErr0[loc], color='b', alpha=0.5, label='Local mean window={}'.format(options.mwsize0))
-        axa.plot(mErr1[loc], color='c', label='Local mean window={}'.format(options.mwsize1))
-        axa.legend(loc='upper left')
-        axa.set_title('Local mean of the residual')
-        k+=1
-
-        axa = axes[k]
-        # axb = axa.twinx()
-        # axb.patch.set_alpha(0.0)
-        axa.plot(sErr0[loc], color='r', alpha=0.5, label='Local standard deviation window={}'.format(options.mwsize0))
-        axa.plot(sErr1[loc], color='m', label='Local standard deviation window={}'.format(options.mwsize1))
-        axa.legend(loc='upper left')
-        axa.set_title('Local standard deviation of the residual')
-        k+=1
-
-        # # Normalized mean
-        # axa = axes[k]
-        # axa.plot(mErr0/sErr0, label='window={}'.format(options.mwsize0))
-        # axa.plot(mErr1/sErr1, label='window={}'.format(options.mwsize1))
-        # axa.legend()
-        # axa.set_title('Normalized mean of the: residual mean/std')
-        # k+=1
-        #
-        # # Residual
-        # axa = axes[k]
-        # axa.plot(Err)
-        # axa.set_title('Residual')
-        # k+=1
-
-        fname = os.path.join(figdir, 'Plots')
+        fig, axes = plot_residuals(Xcpn[loc], Ycpn[loc], Yprd[loc], options.mwsize, Midx=Midx[loc], vthresh=options.vthresh, mad=options.mad, causal=options.causal)
+        plt.suptitle('Location {}, {} component'.format(loc, component), position=(0.5,1.1),fontsize=20)
+        plt.tight_layout()
+        fname = os.path.join(figdir, 'Residual_[window={}_mad={}_causal={}]'.format(options.mwsize, options.mad, options.causal))
         fig.savefig(fname+'.pdf', bbox_inches='tight')
         mpld3.save_html(fig, fname+'.html')
         plt.close(fig)

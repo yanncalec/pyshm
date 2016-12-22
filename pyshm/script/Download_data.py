@@ -3,11 +3,14 @@
 """Download or update the local database from the server of OSMOS.
 """
 
-# class Options:
-#     PID=None  # Key ID of the project to be downloaded, a number
-#     force=False # Force assembling of data
-#     delete=False # Delete failed projects
-#     verbose=False
+class Options:
+    PID=None  # Key ID of the project to be downloaded, a number
+    force=False  # Force assembling of data
+    delete=False  # Delete failed projects
+    endtime=None  # fetch data til this ending time
+    verbose=False  # print message
+    plot=False  # plot data
+
 
 def Download_data(dbdir, options):
     """Download or update the local database from the server of OSMOS.
@@ -178,7 +181,7 @@ def mpld3_plot(figdir, Rdata, Sdata, Ddata):
 
     fig, axes = plt.subplots(2,1,figsize=(20,10), sharex=True)
 
-    for n, (loc, val) in enumerate(Sdata.items()):
+    for loc, val in Sdata.items():
         Xt, Yt = val['Temperature'], val['Elongation']
         axes[0].plot(Xt, label='{}'.format(loc))
         axes[1].plot(Yt, label='{}'.format(loc))
@@ -187,6 +190,7 @@ def mpld3_plot(figdir, Rdata, Sdata, Ddata):
     axes[1].legend()
     axes[0].set_ylabel('Temperature')
     axes[1].set_ylabel('Elongation')
+    plt.tight_layout()
 
     mpld3.save_html(fig, os.path.join(figdir_html, 'All_static.html'))
     fig.savefig(os.path.join(figdir_pdf, 'All_static.pdf'))
@@ -207,49 +211,48 @@ def mpld3_plot(figdir, Rdata, Sdata, Ddata):
             # axes[1].axvspan(v.index[0], v.index[-1], color='r', alpha=0.3)
             axes[1].plot(v, 'r')  # down-sampling dynamic events
 
+        plt.tight_layout()
         mpld3.save_html(fig, os.path.join(figdir_html, '{}.html'.format(loc)))
         fig.savefig(os.path.join(figdir_pdf, '{}.pdf'.format(loc)))
         plt.close(fig)
 
 
-__all__ = ["Download_data"]
+__all__ = ['Download_data', 'Options']
 
 __script__ = __doc__
 
-import sys, os
-from optparse import OptionParser
-# import argparse  # command line arguments parser
-# parser = argparse.ArgumentParser(description=__doc__)
-# parser.add_argument()
+import sys, os, argparse
 
 def main():
-    usage_msg = '{} [options] <directory_of_database>'.format(sys.argv[0])
-    # example_msg = 'Example: '
+    usage_msg = '%(prog)s [options] <dbdir>'
 
-    parser = OptionParser(usage_msg)
+    parser = argparse.ArgumentParser(description=__script__, usage=usage_msg)
 
-    parser.add_option('-p', '--PID', dest='PID', type='int', default=None, help='Project Key ID. If not given all projects presented on the remote server will be processed.')
-    parser.add_option('--end', dest='endtime', type='str', default=None, help='Fetch data til this time. If not given fetch data til today.')
+    parser.add_argument('dbdir', help='directory of the OSMOS database')
+    parser.add_argument('-p', '--PID', dest='PID', type=int, default=None, help='Project Key ID. If not given all projects presented on the remote server will be processed.')
+    parser.add_argument('--end', dest='endtime', type=str, default=None, help='Fetch data til this time. If not given fetch data til today.')
     # parser.add_option('-a', '--assemble', dest='assemble', action='store_true', default=False, help='Assemble all pkl files of different Liris of the same PID into a single pkl file named \'Raw_latest.pkl\'.')
-    parser.add_option('-f', '--force', dest='force', action='store_true', default=False, help='Force to assembling data of all sensors into a single file (even no new data are fetched).')
-    parser.add_option('-d', '--delete', dest='delete', action='store_true', default=False, help='Delete failed projects from database.')
-    parser.add_option('--plot', dest='plot', action='store_true', default=False, help='Plot data of all sensors in the subfolder \'figures\' (could be memory-consuming).')
-    parser.add_option('-v', '--verbose', dest='verbose', action='store_true', default=False, help='Print message.')
+    parser.add_argument('-f', '--force', dest='force', action='store_true', default=False, help='Force to assembling data of all sensors into a single file (even no new data are fetched).')
+    parser.add_argument('-d', '--delete', dest='delete', action='store_true', default=False, help='Delete failed projects from database.')
+    parser.add_argument('--plot', dest='plot', action='store_true', default=False, help='Plot data of all sensors in the subfolder \'figures\' (could be memory-consuming).')
+    parser.add_argument('-v', '--verbose', dest='verbose', action='count', default=0, help='Print message.')
 
-    (options, args) = parser.parse_args()
+    options = parser.parse_args()
 
-    if len(args) < 1:
-        print('Usage: '+usage_msg)
-        sys.exit(0)
-    else:  # check dbdir
-        dbdir = args[0]
-        if not os.path.isdir(dbdir):
-            raise FileNotFoundError(dbdir)
+    # if len(args) < 1:
+    #     print('Usage: '+usage_msg)
+    #     print(parm_msg)
+    #     sys.exit(0)
+    # else:  # check dbdir
+    #     dbdir = args[0]
 
-    Download_data(dbdir, options)
+    # check the database directory
+    if not os.path.isdir(options.dbdir):
+        raise FileNotFoundError(options.dbdir)
+
+    # core function
+    Download_data(options.dbdir, options)
 
 
 if __name__ == '__main__':
-    print(__script__)
-    # print()
     main()

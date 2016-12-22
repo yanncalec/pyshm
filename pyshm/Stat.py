@@ -55,43 +55,6 @@ def MLR_split_safe_call(func):
     # newfunc.__name__ = func.__name__
     return newfunc
 
-# class linear_regression:
-#     def __init__(self, Y, X1, *args):
-#         pass
-#
-#     def _fit_corr():
-#         pass
-#
-#     def _fit_least_square(self):
-#         pass
-
-
-@MLR_split_safe_call
-def multi_linear_regression_corr(Y0, X0, constflag=False):
-    """Multiple linear regression by correlation method.
-
-    This function solve the linear regression problem using the analytical formula
-        L = cov(Y, X) * cov(X,X)^-1
-        C = mean(Y) - L * mean(X)
-    It has the same interface as multi_linear_regression_ls().
-    """
-    dimY = Y0.shape[0]
-    dimX = X0.shape[0]
-
-    # covariance matrices
-    Sm = np.cov(Y0, X0)
-    Syx = Sm[:dimY, dimY:]
-    Sxx = Sm[dimY:, dimY:]
-
-    # column mean vectors
-    mX = np.atleast_2d(np.mean(X0, axis=1)).T
-    mY = np.atleast_2d(np.mean(Y0, axis=1)).T
-
-    L = np.dot(Syx, la.inv(Sxx))
-    Cvec = mY - np.dot(L, mX) if constflag else np.zeros((dimY, 1))
-
-    return L, Cvec
-
 
 @MLR_split_safe_call
 def multi_linear_regression_ls(Y, X, constflag=False, penal=0.):
@@ -103,8 +66,8 @@ def multi_linear_regression_ls(Y, X, constflag=False, penal=0.):
 
     Args:
         Y (2d array): observations variables, each row is a variable and each column a single observation.
-        X (2d array): explicative variables, safe form as Y. X must have the same number of columns as Y.
-        *args (2d arrays): other groups of explicative variables.
+        X (2d array): explanatory variables, same form as Y. X must have the same number of columns as Y.
+        *args (2d arrays): other groups of explanatory variables.
         constflag (bool): if True fit the model with the constant vector C.
         penal (float): penality
     Returns:
@@ -138,41 +101,152 @@ def multi_linear_regression_ls(Y, X, constflag=False, penal=0.):
     return L, Cvec
 
 
-def linear_regression(A0, Y0):
-    """ Linear regression of the model Y = Ax + e
+@MLR_split_safe_call
+def multi_linear_regression_corr(Y, X, constflag=False):
+    """Multiple linear regression by correlation method.
+
+    This function solve the linear regression problem using the analytical formula
+        L = cov(Y, X) * cov(X,X)^-1
+        C = mean(Y) - L * mean(X)
+    It has the same interface as multi_linear_regression_ls().
+    """
+    dimY = Y.shape[0]
+    dimX = X.shape[0]
+
+    # covariance matrices
+    Sm = np.cov(Y, X)
+    Syx = Sm[:dimY, dimY:]
+    Sxx = Sm[dimY:, dimY:]
+
+    # column mean vectors
+    mX = np.atleast_2d(np.mean(X, axis=1)).T
+    mY = np.atleast_2d(np.mean(Y, axis=1)).T
+
+    L = np.dot(Syx, la.inv(Sxx))
+    Cvec = mY - np.dot(L, mX) if constflag else np.zeros((dimY, 1))
+
+    return L, Cvec
+
+
+# def linear_regression(Y, X, constflag=False):
+#     """Linear regression of the model Y = aX + b + e
+#
+#     Args:
+#         Y (1d array): the observation variable
+#         X (1d array): the explanatory variable
+#
+#     Returns:
+#         a, b: the least square solution (using scipy.sparse.linalg.cgs)
+#         err: residual error
+#         sigma2: estimation of the noise variance
+#     """
+#     L, Cvec, Err, Sig = multi_linear_regression_ls(np.atleast_2d(Y), np.atleast_2d(X), constflag=constflag)
+#     return L[0][0], Cvec[0], Err[0], Sig[0]
+
+
+def linear_regression(Y, X):
+    """
+    Linear regression of the model:
+        Y = aX + b
 
     Args:
-        A0 (2d array): the system operator
-        Y (1d array): the observation vector
-
+        Y (1d array): the observation variable
+        X (1d array): the explanatory variable
     Returns:
-        X: the least square solution (using scipy.sparse.linalg.cgs)
+        a,b: the least square solution (using scipy.sparse.linalg.cgs)
         err: residual error
         sigma2: estimation of the noise variance
-        ridx: row indexes of a sub matrix of A where nans are filtered out
+        S: variance of the estimate a and b (as random variables)
     """
-    assert(A0.ndim == 2 and Y0.ndim==1)
-    assert(Y0.size == A0.shape[0])
+    assert(Y.ndim==X.ndim==1)
+    assert(len(Y)==len(X))
 
-    # filter out the NaN entries
-    ridx = np.where(~np.logical_or(np.isnan(Y0), np.isnan(np.sum(A0, axis=1))))[0]
-    A = A0[ridx, :]
-    Y = Y0[ridx]
+    (X0, Y0), nidx = Tools.remove_nan_columns(np.atleast_2d(X), np.atleast_2d(Y))  # the output is a 2d array
+    X0 = X0[0]; Y0 = Y0[0]  # convert to 1d array
+    A = np.vstack([X0, np.ones(len(X0))]).T
+    a, b = np.dot(la.pinv(A), Y0)
 
-    # X, *_ = sparse.linalg.lsqr(A, Y) # Least-square estimation of X
-    # X, *_ = sparse.linalg.cgs(A.T @ A, A.T @ Y) # Least-square estimation of X
-    # X = pinv(A) @ Y # Least-square estimation of X
-    X = la.inv(A.T @ A) @ (A.T @ Y)
-
-    # rankA = matrix_rank(A)  # rank of A
-    rankA = la.matrix_rank(A.T @ A)  # rank of A
-
-    err = A @ X - Y  # residual
-    sigma2 =  la.norm(err)**2 / (A.shape[0] - rankA) # non-biased estimation of noise's variance
+    err = a*X + b - Y # residual
+    sigma2 =  Tools.safe_norm(err)**2 / (A.shape[0] - la.matrix_rank(A)) # non-biased estimation of noise's variance
     # assert(sigma2 >= 0 or np.isnan(simga2))
 
-    # return np.hstack([np.squeeze(X), asarray([nerr, nerr/norm(Y), sigma2])])
-    return X, err, sigma2, ridx
+    return a, b, err, sigma2, sigma2*np.diag(la.pinv(A.T @ A))
+
+
+#### Moving window estimation ####
+
+def mw_linear_regression_with_delay(Y0, X0, D0=None, wsize=24*10, dlrange=(-12,12)):
+    """Moving window linear regression of two time series with delay.
+
+    We suppose that X is related to Y through:
+        Y[t] = K[t]*X[t-D[t]] + B[t] + error
+    Provided D, the linear regression estimates the scalars K[t], B[t] on a moving window centered around t.
+    If D is not given, the function estimates the optimal delay D[t] on X by solving a series of linear regression problems using different values and selecting the one minimizing the residual.
+
+    Args:
+        Y0 (1d array): observation variable
+        X0 (1d array): explanatory variable
+        D0 (1d array): delay, if provided then D0 is used as delay for linear regression and dlrange will be ignored (no estimation of delay)
+        wsize (int): size of the moving window
+        dlrange (tuple of int):  range in which the optimal delay will be searched
+    Returns:
+        D, C, K, B: estimated delay, correlation, slope, intercept
+    """
+    def optimal_delay(X, Y, tidx, dlrange):
+        """Estimate the optimal delay of a long time series X wrt another short time series Y using linear regression. The optimal delay on X is determined by selecting a subsequence of size of Y on a moving window centered around tidx, such that the error of linear regression between the windowed X and Y is minimized."""
+        res = []
+        for n in range(*dlrange):
+            Xn = Tools.safe_slice(X, tidx-n, Y.size, mode='soft')
+            res.append(linear_regression(Y, Xn))
+
+        # the optimal delay is taken as the one minimizing the residual of LS
+        nidx = np.argmin([la.norm(r[2]) for r in res]) # argmin/argmax always return 0 if data contain nan
+        dt = dlrange[0] + nidx
+        Xd = Tools.safe_slice(X, tidx-dt, Y.size, mode='soft')
+        return dt, res[nidx], corr(Xd, Y), Xd
+
+    assert(X0.ndim == Y0.ndim == 1)
+    assert(len(X0) == len(Y0))
+
+    # quantities after compensation of thermal delay
+    D = np.zeros(len(X0), dtype=int) if D0 is None else D0
+    C = np.zeros(len(X0))
+    K = np.zeros(len(X0))
+    B = np.zeros(len(X0))
+
+    for tidx in range(len(X0)):
+        y = Tools.safe_slice(Y0, tidx, wsize, mode='soft')
+        if D0 is None:
+            D[tidx], res, C[tidx], _ = optimal_delay(X0, y, tidx, dlrange)
+            K[tidx], B[tidx] = res[0], res[1]
+        else:
+            Xd = Tools.safe_slice(X0, tidx-D0[tidx], y.size, mode='soft')
+            res = linear_regression(y, Xd)
+            K[tidx], B[tidx] = res[0], res[1]
+            C[tidx] = corr(Xd, y)
+
+    return D, C, K, B
+
+    # for tidx in range(len(X0)):
+    #     yidx0 = max(0, tidx-wsize//2)
+    #     yidx1 = min(yidx0 + wsize, len(X0))
+    #
+    #     res = []  # results of linear regression
+    #     xidxs = []  # to keep the index range of delayed X
+    #
+    #     for t in range(*dlrange):
+    #         xidx0 = max(0, tidx+t-wsize//2)
+    #         xidx1 = min(xidx0 + wsize, len(X0))
+    #         res.append(linear_regression(Y0[yidx0:yidx1], X0[xidx0:xidx1]))
+    #         xidxs.append((xidx0, xidx1))
+    #
+    #     midx = np.argmin([r[2] for r in res])  # index correpsonding to the minimum residual
+    #     xidx0, xidx1 = xidxs[midx]
+    #     D[tidx] = dlrange[0] + midx  #
+    #     C[tidx] = corr(X0[xidx0:xidx1], Y0[yidx0:yidx1])
+    #     K[tidx] = res[midx][0]
+    #     B[tidx] = res[midx][1]
+
 
 # #### Generic ####
 
@@ -250,35 +324,37 @@ def pca(X0, nc=None, sflag=False):
     else:
         return C[:nc,:], U[:,:nc]
 
+# @Tools.nan_safe
+# def corr(x,y):
+#     return np.corrcoef(x,y)[:x.shape[0], x.shape[0]:]
 
-# def corr(x, y):
-#     """
-#     Compute the correlation matrix of two multi-variate random variables.
-#
-#     Similar to the numpy function corrcoef but is safe to nan (treat as zero) and complex variables.
-#
-#     Args:
-#         x (1d or 2d array):  each column of x is a sample from the first variable.
-#         y (1d or 2d array):  each column of y is a sample from the second variable. y must have the same number of columns as x.
-#     Return:
-#         The correlation matrix, with the (i,j) element being corr(x_i, y_j)
-#     """
-#     if x.ndim==1:
-#         x = x[np.newaxis,:]
-#         x[np.isnan(x)] = 0
-#     if y.ndim==1:
-#         y = y[np.newaxis,:]
-#         y[np.isnan(y)] = 0
-#
-#     assert(x.shape[1]==y.shape[1])
-#
-#     mx = mean(x, axis=1); my = mean(y, axis=1)
-#     xmx = x-mx[:, np.newaxis]; ymy = y-my[:,np.newaxis]
-#     dx = sqrt(mean(abs(xmx)**2, axis=1)) # standard deviation of X
-#     dy = sqrt(mean(abs(ymy)**2, axis=1)) # standard deviation of Y
-#     # vx = mean(abs(xmx)**2, axis=1); vy = mean(abs(ymy)**2, axis=1)
-#
-#     return squeeze((xmx/dx[:,newaxis]) @ (np.conj(ymy.T)/dy[newaxis,:])) / x.shape[1]
+def corr(x, y):
+    """Compute the correlation matrix of two multi-variate random variables.
+
+    Similar to the numpy function corrcoef but is safe to nan (treat as zero) and complex variables.
+
+    Args:
+        x (1d or 2d array):  each column of x is a sample from the first variable.
+        y (1d or 2d array):  each column of y is a sample from the second variable. y must have the same number of columns as x.
+    Return:
+        The correlation matrix, with the (i,j) element being corr(x_i, y_j)
+    """
+    if x.ndim==1:
+        x = x[np.newaxis,:]
+        x[np.isnan(x)] = 0
+    if y.ndim==1:
+        y = y[np.newaxis,:]
+        y[np.isnan(y)] = 0
+
+    assert(x.shape[1]==y.shape[1])
+
+    mx = np.mean(x, axis=1); my = np.mean(y, axis=1)
+    xmx = x-mx[:, np.newaxis]; ymy = y-my[:,np.newaxis]
+    dx = np.sqrt(np.mean(np.abs(xmx)**2, axis=1)) # standard deviation of X
+    dy = np.sqrt(np.mean(np.abs(ymy)**2, axis=1)) # standard deviation of Y
+    # vx = mean(abs(xmx)**2, axis=1); vy = mean(abs(ymy)**2, axis=1)
+
+    return np.squeeze((xmx/dx[:,np.newaxis]) @ (np.conj(ymy.T)/dy[np.newaxis,:])) / x.shape[1]
 
 
 # def safe_corr(X0, Y0):

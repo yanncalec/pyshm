@@ -23,18 +23,35 @@ import datetime
 #     return newfunc
 
 
-def nan_safe(func):
-    """Make an endomorphisme safe to nan values.
+def nan_safe(func, endo=True):
+    """Make a function safe to nan by replacing nan values.
 
-    An endomorphisme is a function preserving the dimension, i.e. the output has the same dimension as the input.
+    Args:
+        func: a function
+        endo (bool): if True the function is considered as an endomorphisme which preserves the dimension, i.e. the output has the same dimension as the input. The coefficients in the output corresponding to the nan in the input are marked as nan again.
     """
-    def newfunc(X, *args, nv=0, **kwargs):
-        nidx = np.isnan(X)
+    def newfunc(X0, *args, nv=0, **kwargs):
+        X = X0.copy()
+        nidx = np.isnan(X0)
         X[nidx] = nv
         Y = func(X, *args, **kwargs)
-        Y[nidx] = np.nan
+        if endo:
+            Y[nidx] = np.nan
         return Y
     return newfunc
+
+
+# def nan_safe_remove_nan_columns(func):
+#     """Make a function safe to nan by removing all columns containing nan from the arguments.
+#
+#     Args:
+#         func: a function that all positional arguments are 2d arrays of the same shape
+#     """
+#     def newfunc(*args, **kwargs):
+#         X = [np.atleast_2d(x) for x in args]
+#         Z0, nidx = remove_nan_columns(*X)
+#         return func(*Z, **kwargs)
+#     return newfunc
 
 
 def along_axis(func):
@@ -101,6 +118,25 @@ def safe_convolve(X, kernel, mode='valid'):
         return Y[len(kernel)-1:]
     else: # mode=='full':
         return Y
+
+
+def circular_convolution(x, y):
+    """Circular convolution.
+
+    The circular convolution between x and y is the convolution between
+    periodized x and y. This function computes the circular convolution via
+    fft.
+    """
+    assert(x.ndim == y.ndim == 1)  # only operate on 1d arrays
+
+    N = max(len(x), len(y))
+    res = fft.ifft(fft.fft(x, N) * fft.fft(y, N))  # convolution by fft
+
+    if any(np.iscomplex(x)) or any(np.iscomplex(y)):  # take the real part
+        return res
+    else:
+        return np.real(res)
+
 
 @along_axis
 def convolve_fwd(X, psi, mode='valid'):
@@ -558,11 +594,11 @@ def shrinkage_by_percentage(X0, thresh, soft=True):
 #### Outliers and detection ####
 
 def remove_plateau_jumps(y0, wsize=10, thresh=5., bflag=False, dratio=0.5):
-    """
-    Remove plateau-like or sawtooth-like jumps.
+    """Remove plateau-like or sawtooth-like jumps.
 
-      |---|          /\  /\
-    --|   |--  or --/  \/  \--
+    Plateau-like and sawtooth-like jumps:
+          |---|          /\  /\
+        --|   |--  or --/  \/  \--
 
     Args:
         y0 (1d array): input signal
@@ -635,8 +671,7 @@ def remove_plateau_jumps(y0, wsize=10, thresh=5., bflag=False, dratio=0.5):
 
 
 def detect_step_jumps(X0, method='diff', **kwargs):
-    """
-    Detect step jumps in a 1d array.
+    """Detect step jumps in a 1d array.
 
     Args:
         X0 (1d array): input array
@@ -672,8 +707,7 @@ def detect_step_jumps(X0, method='diff', **kwargs):
 
 
 def find_block_true(X):
-    """
-    Find the starting and ending positions of True blocks in a boolean array.
+    """Find the starting and ending positions of True blocks in a boolean array.
 
     Example:
         for X = [0, 1, 1, 1, 0, 1], the returned list is [[1,4], [5,6]]
@@ -692,8 +726,7 @@ def find_block_true(X):
 
 
 def find_altsign(X, minlen=10):
-    """
-    Find the pattern of alternation of +/- sign in a 1d array.
+    """Find the pattern of alternation of +/- sign in a 1d array.
 
     Args:
         X (1d array): input array
@@ -719,7 +752,6 @@ def remove_nan_columns(*args):
 
     Args:
         *args: a 2d array (or a list of 2d arrays with the same number of columns).
-
     Returns:
         processed array(s) and a bool array containing the indexes of removed nan columns.
     """
@@ -805,18 +837,12 @@ def time_range(t0, N, dtuple=(0, 60*60, 0)):
     Generate a list of N datetime objects starting from the instant t0 with a
     given step dt.
 
-    Parameters
-    ----------
-    t0 : datetime object
-        starting instant
-    N : integer
-        length of the list
-    dtuple : tuple
-        (day, second, microsecond) that defines the sampling step dt
-
-    Return
-    ------
-    A list of datetime objects with the n-th element given by t0+n*dt.
+    Args:
+        t0 (datetime object): starting instant
+        N (int): length of the list
+        dtuple (tuple): (day, second, microsecond) that defines the sampling step dt
+    Return:
+        A list of datetime objects with the n-th element given by t0+n*dt.
     """
     dt = datetime.timedelta(*dtuple)
 
@@ -828,7 +854,6 @@ def time_range(t0, N, dtuple=(0, 60*60, 0)):
 def time_linspace(t0, t1, N):
     """
     Generate N equally spaced points between two time instants t0 and t1.
-
     """
     dt = (t1-t0)/N
     return [t0 + dt*n for n in range(N)]
@@ -842,7 +867,6 @@ def time2second(T0, t0):
         T0 : list of datetime object
         t0 : datetime object
             the starting instant
-
     Return:
         An array with the n-th element given by T0[n]-t0 in seconds
     """
@@ -958,12 +982,38 @@ def matprod_op_left(A, dimXc):
     return Tl @ np.kron(np.eye(dimXc), A) @ Tr
 
 
-def safe_norm(X0, axis=0):
-    """
-    A customized version of numpy.linalg.norm that treats nan as zero.
-    """
-    X = X0.copy()
-    X[np.isnan(X)] = 0
-    return la.norm(X, axis=axis)
+@along_axis
+def safe_slice(X0, tidx, wsize, mode='soft', causal=False):
+    """Take a slice of a nd array along given axis with safe behavior on the boundaries.
 
-safenorm = safe_norm  # an alias
+    Args:
+        X0 (1d or 2d array): each column is one observation
+        tidx (int): position where the slice will be taken
+        wsize (int): size of the slice
+        axis (int): axis along which the slice will be taken
+        mode (str): 'hard' (simple truncation at the boundary) or 'soft' (continuation by zero at the boundary).
+        causal (bool): if True the window ends at tidx, otherwise the window is centered at tidx.
+    Return:
+        A slice of X0.
+    """
+
+    # zero padding
+    X = np.zeros(X0.size+2*(wsize-1))
+    X[wsize-1:(wsize-1+X0.size)] = X0
+
+    if causal:  # index of the slice
+        tidx0 = tidx
+        tidx1 = tidx0+wsize
+    else:
+        tidx0 = tidx-int(wsize/2)+wsize-1
+        tidx1 = tidx0+wsize
+
+    if mode == 'soft':  # soft mode, with zero-padding
+        return X[tidx0:tidx1]
+    else:  # hard mode, without zero-padding
+        tidx0 = max(0, tidx0-(wsize-1))
+        tidx1 = min(X0.size, tidx1-(wsize-1))
+        return X0[tidx0:tidx1]
+
+
+safe_norm = nan_safe(la.norm, endo=False)
