@@ -95,8 +95,10 @@ def mpld3_plot(figdir, Sdata):
         axes[0].plot(Xt, label='{}'.format(loc))
         axes[1].plot(Yt, label='{}'.format(loc))
 
-    axes[0].legend()
-    axes[1].legend()
+    # axes[0].legend()
+    # axes[1].legend()
+    axes[0].legend(fancybox=True, framealpha=0.5)
+    axes[1].legend(fancybox=True, framealpha=0.5)
     axes[0].set_ylabel('Temperature')
     axes[1].set_ylabel('Elongation')
     plt.tight_layout()
@@ -132,7 +134,7 @@ def main():
 
     parser = argparse.ArgumentParser(description=__script__, usage=usage_msg)
 
-    parser.add_argument('projdir', help='directory of the OSMOS project')
+    parser.add_argument('projdir', help='the directory of a project in the database')
     parser.add_argument('-s', '--sflag', dest='sflag', action='store_true', default=False, help='Remove synchronization error.')
     parser.add_argument('-o', '--oflag', dest='oflag', action='store_true', default=False, help='Remove outliers.')
     parser.add_argument('-t', '--tflag', dest='tflag', action='store_true', default=False, help='Apply the preprocessing on the temperature data.')

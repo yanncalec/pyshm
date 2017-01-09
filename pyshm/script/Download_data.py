@@ -186,8 +186,10 @@ def mpld3_plot(figdir, Rdata, Sdata, Ddata):
         axes[0].plot(Xt, label='{}'.format(loc))
         axes[1].plot(Yt, label='{}'.format(loc))
 
-    axes[0].legend()
-    axes[1].legend()
+    # axes[0].legend()
+    # axes[1].legend()
+    axes[0].legend(fancybox=True, framealpha=0.5)
+    axes[1].legend(fancybox=True, framealpha=0.5)
     axes[0].set_ylabel('Temperature')
     axes[1].set_ylabel('Elongation')
     plt.tight_layout()

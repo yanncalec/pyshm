@@ -8,13 +8,14 @@ from pyshm.script import static_data_analysis_template
 class Options:
     verbose=False  # print message
     info=False  # only print information about the project
-    xlocs=[]  # locations for x inputs
-    ylocs=[]  # locations for y inputs
+    alocs=None  # locations of active sensors
+    xlocs=None  # locations for x inputs
+    ylocs=None  # locations for y inputs
     mwmethod='mean'  # method for computation of trend component
     mwsize=24  # size of moving window for computation of trend component
     kzord=1  # order of KZ filter
     component='Trend'  # name of the component for analysis, ['All', 'Seasonal', 'Trend']
-    timerange=[None,None]  # beginning of the data set, a string
+    timerange=None  # beginning of the data set, a string
     lagx=12  # kernel length of x inputs
     lagy=6  # kernel length of y inputs
     dtx=0  # artificial delay in x inputs
@@ -29,7 +30,7 @@ class Options:
 
 
 @static_data_analysis_template
-def Deconv_static_data(options, Xcpn, Ycpn):
+def Deconv_static_data(Xcpn, Ycpn, options):
     """
     Args:
         infile (str): name of pickle file containing the preprocessed static data
@@ -55,11 +56,12 @@ def Deconv_static_data(options, Xcpn, Ycpn):
     Mxd = {}  # objects of deconvolution model
 
     Tidx = Xcpn.index  # time index
-    Locations = list(Xcpn.keys())  # location id of sensors
+    if options.alocs is None:  # locations to be analyzed
+        options.alocs = list(Xcpn.keys())  # is not given use all sensors
 
     # modify the default value of active sensor set
     if options.xlocs is None or len(options.xlocs)==0:
-        options.xlocs = Locations.copy()
+        options.xlocs = options.alocs.copy()
     if options.ylocs is None or len(options.ylocs)==0:
         options.ylocs = options.xlocs.copy()
     if options.verbose>1:
@@ -70,17 +72,19 @@ def Deconv_static_data(options, Xcpn, Ycpn):
 
     if options.verbose:
         print('Deconvolution of the \'{}\' component...'.format(options.component.upper()))
-        if options.verbose>1:
+        if options.verbose > 1:
             print('Training period: from {} to {}, around {} days.'.format(Tidx[options.trn_idx[0]], Tidx[options.trn_idx[1]-1], int((options.trn_idx[1]-options.trn_idx[0])/24)))
 
-    for aloc in Locations:
+    for aloc in options.alocs:
         if options.verbose:
             print('   Processing the location {}...'.format(aloc))
 
         # Sensors of temperature contribution
-        xlocs = options.xlocs.copy()  # use all temperatures
+        xlocs = options.xlocs.copy()
         # Sensors of elongation contribution
-        ylocs = options.ylocs.copy(); ylocs.remove(aloc)
+        ylocs = options.ylocs.copy()
+        if aloc in ylocs:
+            ylocs.remove(aloc)
 
         # Data of observations
         # Xobs = np.asarray(Xcpn[[aloc]]).T
@@ -88,25 +92,38 @@ def Deconv_static_data(options, Xcpn, Ycpn):
 
         # Data for training and prediction
         Xvar = np.asarray(Xcpn[xlocs]).T
-        Yvar = np.asarray(Ycpn[ylocs]).T
-
+        Yvar = np.asarray(Ycpn[ylocs]).T if len(ylocs)>0 else None
+        # print(Xvar.shape, len(ylocs))
+        
         # Apply delay to avoid over-fitting
         Xvar = np.roll(Xvar, options.dtx, axis=1); Xvar[:,:options.dtx] = np.nan
-        Yvar = np.roll(Yvar, options.dty, axis=1); Yvar[:,:options.dty] = np.nan
+        if Yvar is not None:
+            Yvar = np.roll(Yvar, options.dty, axis=1); Yvar[:,:options.dty] = np.nan
 
         # Deconvolution model
-        if options.lagx>0 and options.lagy>0:
-            mxd = Models.DiffDeconv(Yobs, Xvar, options.lagx, Yvar, options.lagy)
+        if options.lagx>0 and options.lagy>0:  # Full model
+            if len(ylocs)>0:  # more than one ylocs given
+                mxd = Models.DiffDeconv(Yobs, Xvar, options.lagx, Yvar, options.lagy)
+            else:  # in case that there is only one ylocs, use the half model
+                mxd = Models.DiffDeconv(Yobs, Xvar, options.lagx)
         elif options.lagx>0:
             mxd = Models.DiffDeconv(Yobs, Xvar, options.lagx)
         elif options.lagy>0:
-            mxd = Models.DiffDeconv(Yobs, Yvar, options.lagy)
+            if len(ylocs)>0:
+                mxd = Models.DiffDeconv(Yobs, Yvar, options.lagy)
+            else:
+                raise ValueError('lagx must not be 0 when ylocs==1.')
         else:
             raise ValueError('lagx and lagy can not be both 0.')
 
         # Model fitting and prediction
         res_fit = mxd.fit(constflag=False, tidx0=options.sidx, Ntrn=options.Ntrn)
         res_predict = mxd.predict(Xvar, Yvar)
+
+        # Yprd = pd.DataFrame(res_predict[0][0], index=Tidx)
+        # Yerr = pd.DataFrame(Yobs[0]-res_predict[0][0], index=Tidx)
+        # Aprd = pd.DataFrame(res_predict[1][0][0], index=Tidx)
+        # Bprd = pd.DataFrame(res_predict[1][1][0], index=Tidx) if options.lagy>0 else None
 
         # The last [0] is for taking the first row (which is also the only row).
         Yprd0[aloc] = res_predict[0][0]
@@ -115,11 +132,11 @@ def Deconv_static_data(options, Xcpn, Ycpn):
             Bprd0[aloc] = res_predict[1][1][0]
         Yerr0[aloc] = Yobs[0] - Yprd0[aloc]
         Mxd[aloc] = mxd
-
-    Yprd = pd.DataFrame(Yprd0, columns=Ycpn.columns, index=Tidx)
-    Yerr = pd.DataFrame(Yerr0, columns=Ycpn.columns, index=Tidx)
-    Aprd = pd.DataFrame(Aprd0, columns=Ycpn.columns, index=Tidx)
-    Bprd = pd.DataFrame(Bprd0, columns=Ycpn.columns, index=Tidx) if len(Bprd0)>0 else None
+        
+    Yprd = pd.DataFrame(Yprd0, columns=options.alocs, index=Tidx)
+    Yerr = pd.DataFrame(Yerr0, columns=options.alocs, index=Tidx)
+    Aprd = pd.DataFrame(Aprd0, columns=options.alocs, index=Tidx)
+    Bprd = pd.DataFrame(Bprd0, columns=options.alocs, index=Tidx) if len(Bprd0)>0 else None
 
     return {'Yprd':Yprd, 'Yerr':Yerr, 'Aprd':Aprd, 'Bprd':Bprd, 'Mxd':Mxd}
 
@@ -141,12 +158,13 @@ def main():
     parser.add_argument('outdir', nargs='?', type=str, default=None, help='directory where results (figures and data files) are saved.')
 
     sensor_opts = parser.add_argument_group('Sensor options')
+    sensor_opts.add_argument('--alocs', dest='alocs', type=lambda s: [int(x) for x in s.split(',')], default=None, help='Location key IDs of sensors to be analyzed (default=all sensors).', metavar='integers separated by \',\'')
     sensor_opts.add_argument('--xlocs', dest='xlocs', type=lambda s: [int(x) for x in s.split(',')], default=None, help='Location key IDs of active temperature sensors (default=all sensors).', metavar='integers separated by \',\'')
     sensor_opts.add_argument('--ylocs', dest='ylocs', type=lambda s: [int(x) for x in s.split(',')], default=None, help='Location key IDs of active elongation sensors (default=same as xlocs).', metavar='integers separated by \',\'')
     sensor_opts.add_argument('--component', dest='component', type=str, default='Trend', help='Type of component of data for analysis: Trend (default), Seasonal, All.', metavar='string')
 
     wdata_opts = parser.add_argument_group('Data truncation options')
-    wdata_opts.add_argument('--timerange', dest='timerange', nargs=2, type=str, default=[None,None], help='Starting and ending timestamp index (default=the whole data set).', metavar='YYYY-MM-DD')
+    wdata_opts.add_argument('--timerange', dest='timerange', nargs=2, type=str, default=None, help='Starting and ending timestamp index (default=the whole data set).', metavar='YYYY-MM-DD')
 
     ddata_opts = parser.add_argument_group('Component decomposition options')
     ddata_opts.add_argument('--mwmethod', dest='mwmethod', type=str, default='mean', help='Type of moving window mean estimator for decomposition of component: mean (default), median.', metavar='string')
@@ -165,6 +183,7 @@ def main():
     model_opts.add_argument('--dty', dest='dty', type=int, default=0, help='Artificial delay (in hours) applied on the elongation data to avoid over-fitting (default=0).', metavar='integer')
 
     parser.add_argument('-v', '--verbose', dest='verbose', action='count', default=0, help='Print message.')
+    # parser.add_argument('--plot', dest='verbose', action='store_true', default=False, help='Plot results.')
     parser.add_argument('--info', dest='info', action='store_true', default=False, help='Print only information about the project.')
 
     options = parser.parse_args()
@@ -181,14 +200,19 @@ def main():
         outdir0 = options.outdir
 
     func_name = __name__[__name__.rfind('.')+1:]
-    outdir = os.path.join(outdir0, '{}_[{}_lagx={}_lagy={}]'.format(func_name, options.component.upper(), options.lagx, options.lagy))
+    outdir = os.path.join(outdir0, '{}_[{}_lagx={}_lagy={}_timerange=({},{})]'.format(func_name, options.component.upper(), options.lagx, options.lagy, options.timerange[0], options.timerange[1]))
     try:
         os.makedirs(outdir)
     except OSError:
         pass
-    outfile = os.path.join(outdir, 'Results.pkl')
 
-    _ = Deconv_static_data(options.infile, outfile, options)
+    if options.alocs is None:
+        outfile = 'Results_All'
+    else:
+        outfile = 'Results_{}'.format(options.alocs).replace(' ', '')
+
+    # print(options.alocs,options.xlocs,options.ylocs)
+    _ = Deconv_static_data(options.infile, os.path.join(outdir, outfile), options)
 
 
 if __name__ == "__main__":

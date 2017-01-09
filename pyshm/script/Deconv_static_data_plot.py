@@ -4,9 +4,7 @@
 """
 
 
-import sys, os, argparse
-
-__script__ = __doc__
+from pyshm.script import load_data
 
 
 def plot_results(Xcpn, Ycpn, Yprd, Aprd, Bprd, trn_idx=None):
@@ -59,7 +57,7 @@ def plot_results(Xcpn, Ycpn, Yprd, Aprd, Bprd, trn_idx=None):
 
     # Thermal and non-thermal residuals
     axa = axes[k]
-    axa.plot(Err, color='royalblue', alpha=0.8, linewidth=2, label='Elongation residual')
+    axa.plot(Err, color='b', alpha=0.8, linewidth=2, label='Elongation residual')
     axa.plot(Ycpn-Aprd, color='r', alpha=0.8, linewidth=2, label='Residual: Thermal contribution')
     # axa.plot((Ycpn-Bprd), color='c', alpha=0.8, linewidth=2, label='Non-thermal residual')
     axa.legend(loc='upper left', fancybox=True, framealpha=0.5)
@@ -137,6 +135,10 @@ def plot_residuals(Xcpn, Ycpn, Yprd, mwsize, vthresh, Midx=None, mad=False, caus
     return fig, axes
 
 
+import sys, os, argparse
+
+__script__ = __doc__
+
 def main():
     # Load data
     usage_msg = '%(prog)s [options] <infile> [outdir]'
@@ -147,7 +149,7 @@ def main():
     parser.add_argument('outdir', nargs='?', type=str, default=None, help='directory where figures are saved (default: in the same folder as infile).')
 
     parser.add_argument('--vthresh', dest='vthresh', type=float, default=3., help='Threshold value for event detection (default=4).')
-    parser.add_argument('--mwsize', dest='mwsize', type=int, default=24, help='Size of the moving window for local statistics (default=24).')
+    parser.add_argument('--mwsize', dest='mwsize', type=int, default=240, help='Size of the moving window for local statistics (default=240).')
     parser.add_argument('--mad', dest='mad', action='store_true', default=False, help='Use median based estimator (default: use empirical estimator).')
     parser.add_argument('--causal', dest='causal', action='store_true', default=False, help='Use causal window (default: non causal).')
     parser.add_argument('-v', '--verbose', dest='verbose', action='count', default=False, help='Print message.')
@@ -165,35 +167,32 @@ def main():
     if not os.path.isfile(options.infile):
         raise FileNotFoundError(options.infile)
 
+    # Load raw data
+    Res = load_data(options.infile)
+    # print(Res['options'], Res['trn_idx'], Res['Ntrn'])
     # output directory for figures
     if options.outdir is not None:
         figdir0 = options.outdir
     else:
-        idx = options.infile.rfind(os.path.sep)
+        idx = options.infile.rfind('.')
         figdir0 = options.infile[:idx]
-
-    # Load raw data
-    with open(options.infile, 'rb') as fp:
-        Res = pickle.load(fp)
 
     Xcpn = Res['Xcpn']  # Component of temperature
     Ycpn = Res['Ycpn']  # Component of elongation
     Yprd = Res['Yprd']  # Prediction of elongation
-    Yerr = Res['Yerr']  # Error of prediction
+    # Yerr = Res['Yerr']  # Error of prediction
+    algo_options = dict(Res['algo_options'])  # options of parameters
     Aprd = Res['Aprd']  # Contribution of first group of inputs
-    Bprd = Res['Bprd']  # Contribution of second group of inputs
-    saved_options=Res['options']  # options of parameters
-    Mxd = Res['Mxd']  # Objects of deconvolution model
+    Bprd = Res['Bprd'] if algo_options['lagy']>0 else None  # Contribution of second group of inputs
+    # Mxd = Res['Mxd']  # Objects of deconvolution model
     Midx = Res['Midx']  # Indicator of missing values
-    # print(len(Midx), len(Xcpn))
-    Tidx = Xcpn.index  # Time index
+    # Tidx = Xcpn.index  # Time index
 
-    trn_idx = saved_options.trn_idx
-    Ntrn = saved_options.Ntrn
-    component = saved_options.component
+    trn_idx = algo_options['trn_idx']
+    component = algo_options['component']
 
     # Plot all results
-    Locations = list(Xcpn.keys())
+    Locations = list(Yprd.keys())
     for loc in Locations:
         if options.verbose:
             print('Plotting the result of location {}...'.format(loc))
@@ -204,7 +203,7 @@ def main():
         except OSError:
             pass
 
-        if saved_options.lagy > 0: # if the non-thermal contribution exists
+        if Bprd is not None: #algo_options.lagy > 0: # if the non-thermal contribution exists
             fig, axes = plot_results(Xcpn[loc], Ycpn[loc], Yprd[loc], Aprd[loc], Bprd[loc], trn_idx)
         else:
             fig, axes = plot_results(Xcpn[loc], Ycpn[loc], Yprd[loc], Aprd[loc], None, trn_idx)

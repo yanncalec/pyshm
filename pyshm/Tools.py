@@ -6,12 +6,14 @@ import numpy.linalg as la
 # import numpy.ma as ma
 
 import scipy as sp
+import scipy.signal
 # from scipy import special
 
 import pandas as pd
 import copy
 import dateutil
 import datetime
+import inspect
 
 #### Functional operators ####
 
@@ -86,6 +88,24 @@ def rfunc(p, func, x, *args, **kwargs):
         return x #func(x, *args, **kwargs)
 
 
+def get_actual_kwargs(func, **kwargs):
+    """Generate a full dictionary of keyword arguments of a function from a given (partial) dictionary.
+
+    Args:
+        func: a callable function
+        kwargs (dict): dictionary of some keyword arguments
+    """
+    allargs_name, _, _, kwargs_val = inspect.getargspec(func)
+    d = {}
+    for i,k in enumerate(allargs_name[-len(kwargs_val):]):
+        if k in kwargs:
+            d.update({k:kwargs[k]})
+        else:
+            d.update({k:kwargs_val[i]})
+    return d
+    # return {k:kwargs[k] if k in kwargs else kwargs_val[i] for i,k in enumerate(allargs_name[-len(kwargs_val):])}
+
+    
 #### Convolution and filters ####
 
 def safe_convolve(X, kernel, mode='valid'):
@@ -1017,3 +1037,4 @@ def safe_slice(X0, tidx, wsize, mode='soft', causal=False):
 
 
 safe_norm = nan_safe(la.norm, endo=False)
+
