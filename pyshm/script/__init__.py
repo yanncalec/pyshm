@@ -1,5 +1,11 @@
 from functools import wraps
 import json, numpy, pickle, pandas
+import colorama
+
+warningstyle = lambda x: colorama.Style.BRIGHT + colorama.Fore.RED + x + colorama.Style.RESET_ALL
+brightstyle = lambda x: colorama.Style.BRIGHT + x + colorama.Style.RESET_ALL
+examplestyle = lambda x: "\n  " + brightstyle(x[0]) + "\n\t" + x[1]
+
 
 class MyEncoder(json.JSONEncoder):
     """ Convert numpy types to json.
@@ -11,6 +17,8 @@ class MyEncoder(json.JSONEncoder):
             return float(obj)
         elif isinstance(obj, numpy.ndarray):
             return obj.tolist()
+        # elif isinstance(obj, numpy.bool_):
+        #     return bool(obj)
         else:
             return super(MyEncoder, self).default(obj)
 
@@ -31,7 +39,6 @@ def load_data(fname):
             try:
                 Res[k] = pandas.read_json(v)
             except Exception:
-                # print(k)
                 Res[k] = v
         return Res
     else:
@@ -40,11 +47,11 @@ def load_data(fname):
 
 def per_sensor_result(X, Locations, aflag=True):
     """Reorganize the result by sensor.
-    
+
     If aflag==True all non-pandas fields present in X will be preserved.
     """
     import pandas
-    
+
     Res = {}
     for loc in Locations:
         toto = {}
@@ -62,7 +69,7 @@ def per_sensor_result(X, Locations, aflag=True):
 
 def to_json(X):
     """Convert the values of pandas instances in a dictionary to json format.
-    
+
     Args:
         X (dict): input dictionary
     """
@@ -73,11 +80,60 @@ def to_json(X):
         else:
             try:
                 # if the value can be converted to json, keep as it is
-                json.dumps(v, cls=MyEncoder)
-                Res[k] = v
+                # json will not dump dictionary unless all keys are string
+                u = {str(k):v for k,v in v.items()}
+                json.dumps(u, cls=MyEncoder)
+                Res[k] = u
             except Exception as msg: #TypeError:
+                # print(k, msg)
                 pass
     return Res
+
+
+def prepare_data(infile, component='Trend', mwsize=24, kzord=1, mwmethod='mean', timerange=(None,None), verbose=True):
+    """Load data and separate components.
+    """
+    from pyshm import OSMOS
+    # import sys
+
+    # options_dict = {'component':'Seasonal', 'verbose':True, 'mwsize':24, 'kzord':1, 'mwmethod':'mean',
+    #             'timerange':None, 'info':False}
+    # dict_filter = lambda D,F:{k:(D[k] if k in D else v) for k,v in F.items()}
+    # options = type('Options', (object,), dict_filter(kwargs, options_dict))    # Load preprocessed static data
+
+    # Load preprocessed static data
+    Data0, Tall0, Eall0, Locations = OSMOS.load_static_data(infile)
+    # indicator of missing data, NaN: not defined, True: missing data
+    Midx0 = OSMOS.concat_mts(Data0, 'Missing')
+
+    # Selection of component
+    if component.upper() in ['SEASONAL', 'TREND']:
+        if verbose:
+            print('Decomposition of signals...')
+            print('   Moving window estimator: {}\n   Moving window size: {}\n   Order of the KZ filter: {}\n'.format(mwmethod, mwsize, kzord))
+
+        # Decomposition of signals
+        Ttrd0, Tsnl0 = OSMOS.trend_seasonal_decomp(Tall0, mwsize=mwsize, kzord=kzord, method=mwmethod)
+        Etrd0, Esnl0 = OSMOS.trend_seasonal_decomp(Eall0, mwsize=mwsize, kzord=kzord, method=mwmethod)
+
+        if component.upper() == 'SEASONAL':
+            Xcpn0, Ycpn0 = Tsnl0, Esnl0
+        else:
+            Xcpn0, Ycpn0 = Ttrd0, Etrd0
+    elif component.upper() == 'ALL':
+            Xcpn0, Ycpn0 = Tall0, Eall0
+    else:
+        raise TypeError('Unknown type of component:', component)
+
+    # Data truncation
+    # tidx0 and tidx1 are respectively the beginning and ending timestamps
+    tidx0, tidx1 = timerange
+    Xcpn = Xcpn0[tidx0:tidx1]
+    Ycpn = Ycpn0[tidx0:tidx1]
+    # indicator of missing value, the nan values due forced alignment of OSMOS.concat_mts are casted to True
+    Midx = Midx0[tidx0:tidx1].astype(bool)
+
+    return Xcpn, Ycpn, Midx
 
 
 def static_data_analysis_template(func):
@@ -96,101 +152,39 @@ def static_data_analysis_template(func):
         # import numpy as np
         import pandas as pd
         # import colorama
-        from pyshm import OSMOS
 
-        # Load preprocessed static data
-        Data0, Tall0, Eall0, Locations = OSMOS.load_static_data(infile)
-        # indicator of missing data, NaN: not defined, True: missing data
-        Midx0 = OSMOS.concat_mts(Data0, 'Missing')
-
-        if options.info:
-            ss = str(Locations)[1:-1].replace(',', '')
-            print('Location key IDs:', ss)
-
-            for loc in Locations:
-                print('Location {}, from {} to {}'.format(loc, Data0[loc].index[0], Data0[loc].index[-1]))
-            t0, t1 = OSMOS.common_time_range(Data0)
-            print('Common period: from {} to {}'.format(t0, t1))
-            sys.exit()
-
-        # Selection of component
-        if options.component.upper() in ['SEASONAL', 'TREND']:
-            if options.verbose:
-                print('Decomposition of signals...')
-                print('   Moving window estimator: {}\n   Moving window size: {}\n   Order of the KZ filter: {}\n'.format(options.mwmethod, options.mwsize, options.kzord))
-
-            # Decomposition of signals
-            Ttrd0, Tsnl0 = OSMOS.trend_seasonal_decomp(Tall0, mwsize=options.mwsize, kzord=options.kzord, method=options.mwmethod)
-            Etrd0, Esnl0 = OSMOS.trend_seasonal_decomp(Eall0, mwsize=options.mwsize, kzord=options.kzord, method=options.mwmethod)
-
-            if options.component.upper() == 'SEASONAL':
-                Xcpn0, Ycpn0 = Tsnl0, Esnl0
-            else:
-                Xcpn0, Ycpn0 = Ttrd0, Etrd0
-        elif options.component.upper() == 'ALL':
-                Xcpn0, Ycpn0 = Tall0, Eall0
-        else:
-            raise Exception('Unknown type of component:', options.component)
-
-        # Data truncation
-        # tidx0 and tidx1 are respectively the beginning and ending timestamps
-        if options.timerange is None:
-            tidx0, tidx1 = None, None
-        else:
-            tidx0, tidx1 = options.timerange
-        Xcpn = Xcpn0[tidx0:tidx1]
-        Ycpn = Ycpn0[tidx0:tidx1]
-        Midx = Midx0[tidx0:tidx1]  # indicator of missing value
-        # options.timerange = (Xcpn.index[0], Xcpn.index[-1])  # true time range
+        Xcpn, Ycpn, Midx = prepare_data(infile, component=options.component,  mwsize=options.mwsize, kzord=options.kzord, mwmethod=options.mwmethod, timerange=(options.time0, options.time1), verbose=options.verbose)
 
         # Call the core function and save results in a dictionary
         resdic = func(Xcpn, Ycpn, options, *args, **kwargs)  # side effect on options
         resdic.update({'Xcpn':Xcpn, 'Ycpn':Ycpn, 'Midx':Midx, 'algo_options':vars(options)})
 
-        # Save the results
-        with open(outfile0+'.pkl', 'wb') as fp:
-            # json.dump(resdic, fp, sort_keys=True)
-            pickle.dump(resdic, fp)
-        if options.verbose:
-            print('\nResults saved in {}'.format(outfile0+'.pkl'))
+        # # Save the results in pickle format
+        # with open(outfile0+'.pkl', 'wb') as fp:
+        #     # json.dump(resdic, fp, sort_keys=True)
+        #     pickle.dump(resdic, fp)
+        # if options.verbose:
+        #     print('\nResults saved in {}'.format(outfile0+'.pkl'))
 
-        resjson = to_json(resdic)  # options is dropped in resjson
+        # Save the results in json format:
+        # some non-standard objects might be removed, and non-float values will be casted as float
+        resjson = to_json(resdic)
+        # print(resjson.keys())
         with open(outfile0+'.json', 'w') as fp:
             json.dump(resjson, fp, cls=MyEncoder)
         if options.verbose:
-            print('\nResults saved in {}'.format(outfile0+'.json'))
-
-        # # Reorganized per sensor
-        # toto = per_sensor_result(resdic, Locations, aflag=True)
-        # resjson = {}
-        # for k,v in toto.items():  # convert to json
-        #     resjson[k] = v.to_json(date_unit='s', date_format='iso')
-        # alljson = {'results':resjson, 'options':vars(options)}
-        # with open(outfile0+'.json', 'w') as fp:
-        #     json.dump(alljson, fp, sort_keys=True, cls=MyEncoder)
-        # if options.verbose:
-        #     print('\nResults saved in {}'.format(outfile0+'.json'))
-
-        # for loc in Locations:
-        #     fname = outfile0+'_{}.json'.format(loc)
-        #     res_sensor[loc].to_json(fname, date_unit='s', date_format='iso')
-        #     if options.verbose:
-        #         print('Results saved in {}'.format(fname))
-
-        # try:
-        #     with open(fname, 'wb') as fp:
-        #         pickle.dump(resdic, fp)
-        #     if options.verbose:
-        #         print('\nResults saved in {}'.format(fname))
-        #     return resdic
-        # except Exception as msg:
-        #     # print(msg)
-        #     print(Fore.RED + 'Warning: ', msg)
-        #     print(Style.RESET_ALL)
+            print('Results saved in {}'.format(outfile0+'.json'))
 
         return resdic, resjson
     return newfunc
 
 
+from . import Download_data
+from . import Preprocess_static_data
+from . import Deconv_static_data
 
-# from . import Download_data, Preprocess_static_data, Deconv_static_data, Deconv_static_data_plot
+# from .Download_data import Download_data
+# from .Preprocess_static_data import Preprocess_static_data
+# from .Deconv_static_data import Deconv_static_data
+# , Deconv_static_data, Deconv_static_data_plot
+

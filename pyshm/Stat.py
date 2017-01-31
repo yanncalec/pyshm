@@ -3,6 +3,7 @@
 
 import numpy as np
 import numpy.linalg as la
+import pandas as pd
 # from numpy import newaxis, mean, sqrt, zeros, ones, squeeze,\
 #     asarray, abs
 # from numpy.linalg import norm, svd, inv, pinv
@@ -10,6 +11,7 @@ import numpy.linalg as la
 # from sklearn.cluster import KMeans
 # from sklearn.decomposition import PCA
 # from sklearn.gaussian_process import GaussianProcess
+from scipy import signal
 
 from . import Tools
 
@@ -163,14 +165,18 @@ def linear_regression(Y, X):
 
     (X0, Y0), nidx = Tools.remove_nan_columns(np.atleast_2d(X), np.atleast_2d(Y))  # the output is a 2d array
     X0 = X0[0]; Y0 = Y0[0]  # convert to 1d array
-    A = np.vstack([X0, np.ones(len(X0))]).T
-    a, b = np.dot(la.pinv(A), Y0)
+    if len(X0)>0:
+        A = np.vstack([X0, np.ones(len(X0))]).T
+        a, b = np.dot(la.pinv(A), Y0)
 
-    err = a*X + b - Y # residual
-    sigma2 =  Tools.safe_norm(err)**2 / (A.shape[0] - la.matrix_rank(A)) # non-biased estimation of noise's variance
-    # assert(sigma2 >= 0 or np.isnan(simga2))
+        err = a*X + b - Y # residual
+        sigma2 =  Tools.safe_norm(err)**2 / (A.shape[0] - la.matrix_rank(A)) # non-biased estimation of noise's variance
+        # assert(sigma2 >= 0 or np.isnan(simga2))
+        S = sigma2*np.diag(la.pinv(A.T @ A))
+    else:
+        a, b, err, sigma2, S = np.nan, np.nan, np.nan*np.zeros_like(Y), np.nan, np.nan*np.zeros(2)
 
-    return a, b, err, sigma2, sigma2*np.diag(la.pinv(A.T @ A))
+    return a, b, err, sigma2, S
 
 
 #### Moving window estimation ####
@@ -246,6 +252,103 @@ def mw_linear_regression_with_delay(Y0, X0, D0=None, wsize=24*10, dlrange=(-12,1
     #     C[tidx] = corr(X0[xidx0:xidx1], Y0[yidx0:yidx1])
     #     K[tidx] = res[midx][0]
     #     B[tidx] = res[midx][1]
+
+
+def local_mean_std(X, mwsize, mad=False, causal=False, drop=True):
+    """Local mean and standard deviation estimation using pandas library.
+    """
+    if isinstance(X, pd.Series) or isinstance(X, pd.DataFrame):
+        Err = X
+    else:
+        if X.ndim == 1:
+            Err = pd.Series(X)
+        else:
+            Err = pd.DataFrame(X.T)
+
+    if mad:  # use median-based estimator
+        mErr = Err.rolling(window=mwsize, min_periods=1, center=not causal).median() #.bfill()
+        # sErr = 1.4826 * (Err-mErr).abs().rolling(window=mwsize, min_periods=1, center=not causal).median() #.bfill()
+        sErr = (Err-mErr).abs().rolling(window=mwsize, min_periods=1, center=not causal).median() #.bfill()
+    else:
+        mErr = Err.rolling(window=mwsize, min_periods=1, center=not causal).mean() #.bfill()
+        sErr = Err.rolling(window=mwsize, min_periods=1, center=not causal).std() #.bfill()
+
+    # drop the begining
+    if drop:
+        mErr.iloc[:int(mwsize*1.1)]=np.nan
+        sErr.iloc[:int(mwsize*1.1)]=np.nan
+        
+    if isinstance(X, pd.Series) or isinstance(X, pd.DataFrame):
+        return mErr, sErr
+    else:
+        return np.asarray(mErr), np.asarray(sErr)
+
+
+def Hurst(data, mwsize, sclrng=None, wvlname='haar'):
+    """Estimate the Hurst exponent of a time series using wavelet transform.
+
+    Args:
+        data (1d array): input time series
+        mwsize (int): size of the smoothing window
+        sclrng (tuple): index of scale range used for linear regression
+    Returns:
+        H (1d array): estimate of Hurst exponent
+        B (1d array): estimate of intercept
+        V (2d array): estimate of variance of H and B
+    """
+    import pywt
+    import pandas as pd
+
+    Nt = len(data)  # length of data
+    wvl = pywt.Wavelet(wvlname)  # wavelet object
+    maxlvl = pywt.dwt_max_level(Nt, wvl)  # maximum level of decomposition
+    if sclrng is None:  # range of scale for estimation
+        sclrng = (0, maxlvl)
+    else:
+        sclrng = (max(0,sclrng[0]), min(maxlvl, sclrng[1]+1))
+    # Compute the continuous wavelet transform
+    C0 = []
+    for n in range(1, maxlvl+1):
+        phi, psi, x = wvl.wavefun(level=n) # x is the grid for wavelet
+        # C0.append(scipy.signal.fftconvolve(data, psi/2**((n-1)/2), mode='same'))
+        C0.append(Tools.safe_convolve(data, psi/2**((n-1)/2), mode='samel'))
+    C = np.asarray(C0)  # matrix of wavelet coefficients, each column is a vector of coefficients
+
+    # Compute the wavelet spectrum
+    S = np.asarray(pd.DataFrame((C**2).T).rolling(window=mwsize, center=True, min_periods=1).mean()).T  # of dimension maxlvl-by-Nt
+    # S = C**2
+    # S0 = []
+    # for n in range(0, maxlvl-1): #sclrng):
+    #     Cs = pd.Series(C[n, :]**2)  # wavelet spectrum in pandas format
+    #     S0.append(np.asarray(Cs.rolling(window=mwsize, center=True, min_periods=1).mean())) #, win_type='boxcar').mean())
+    # S = np.asarray(S0)
+
+    # Linear regression
+    H, B, V = np.zeros(Nt), np.zeros(Nt), np.zeros((2, Nt))
+    xvar = np.arange(*sclrng)  # explanatory variable
+    for t in range(Nt):
+        yvar = np.log2(S[sclrng[0]:sclrng[1],t])
+        a, b, err, sigma2, v = linear_regression(yvar, xvar)
+        H[t] = (a-1)/2
+        B[t] = b
+        V[:,t] = v
+
+    # drop the begining
+
+    # roll to get a causal result
+    sc = mwsize//2
+    H = np.roll(H, -sc); H[-sc:] = np.nan
+    B = np.roll(B, -sc); B[-sc:] = np.nan
+    V = np.roll(V, -sc); V[:,-sc:] = np.nan
+    
+    H[:mwsize] = np.nan
+    B[:mwsize] = np.nan
+    V[:,:mwsize] = np.nan
+    # H = roll_fill(H, int(mwsize/2))
+    # B = roll_fill(B, int(mwsize/2))
+    # E = roll_fill(E, int(mwsize/2))
+    # Er = roll_fill(Er, int(mwsize/2))
+    return H, B, V
 
 
 # #### Generic ####

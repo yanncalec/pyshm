@@ -173,12 +173,12 @@ setup(
     # pip to create the appropriate form of executable for the target platform.
     entry_points={
         'console_scripts': [
-            'osmos_download_data = pyshm.script.Download_data:main',
-            'osmos_preprocess_static_data = pyshm.script.Preprocess_static_data:main',
-            'osmos_deconv_static_data = pyshm.script.Deconv_static_data:main',
-            'osmos_deconv_static_data_plot = pyshm.script.Deconv_static_data_plot:main',
-            'osmos_thermal_static_data = pyshm.script.Thermal_static_data:main',
-            'osmos_thermal_static_data_plot = pyshm.script.Thermal_static_data_plot:main'
+            'osmos_download = pyshm.script.Download_data:main',
+            'osmos_preprocess = pyshm.script.Preprocess_static_data:main',
+            'osmos_deconv = pyshm.script.Deconv_static_data:main',
+            'osmos_deconv_plot = pyshm.script.Deconv_static_data_plot:main',
+            'osmos_thermal = pyshm.script.Thermal_static_data:main',
+            'osmos_thermal_plot = pyshm.script.Thermal_static_data_plot:main'
         ],
     },
 

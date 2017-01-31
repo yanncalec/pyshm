@@ -105,7 +105,7 @@ def get_actual_kwargs(func, **kwargs):
     return d
     # return {k:kwargs[k] if k in kwargs else kwargs_val[i] for i,k in enumerate(allargs_name[-len(kwargs_val):])}
 
-    
+
 #### Convolution and filters ####
 
 def safe_convolve(X, kernel, mode='valid'):
@@ -346,6 +346,7 @@ def L_filter(X, wsize=1):
 
     return Y
 
+
 def L_filter_boundary(X, wsize=1):
     """
     Boundary-preserving lower filter.
@@ -370,6 +371,17 @@ def L_filter_boundary(X, wsize=1):
 
 
 #### Transformation ####
+
+def roll_fill(X0, s, val=np.nan):
+    """A wrapper of numpy roll function by setting the cyclic head/tail to a given value.
+    """
+    X = np.roll(X0, s)
+    if s>=0:
+        X[:s] = val
+    else:
+        X[s:] = val
+    return X
+
 
 def sdiff(X, p, axis=-1):
     """Seasonal difference.
@@ -954,6 +966,24 @@ def timeseries_list2idx(Tl, dtuple=(0, 60*60, 0)):
 
 #### Linear algebra related ####
 
+def issymmetric(A):
+    """Check if a matrix is symmetric.
+    """
+    if A.ndim!=2 or A.shape[0]!=A.shape[1]:
+        return False
+    else:
+        return np.allclose(A.T, A)
+
+
+def ispositivedefinite(A):
+    """Check if a matrix is positive definite.
+    """
+    if A.ndim!=2:
+        return False
+    else:
+        return np.all(np.linalg.eigvals(A) > 0)
+
+
 def mat_transpose_op(dimr, dimc):
     ovec = np.zeros(dimc); ovec[0]=1
     Cmat = np.kron(np.eye(dimr), ovec)
@@ -997,7 +1027,7 @@ def matprod_op_left(A, dimXc):
     """Linear operator representation of the matrix product at left (i.e. L(X) = A*X)
     """
     dimXr = A.shape[1]
-    Tl =f2c_op(A.shape[0], dimXc)
+    Tl = f2c_op(A.shape[0], dimXc)
     Tr = c2f_op(dimXr, dimXc)
     return Tl @ np.kron(np.eye(dimXc), A) @ Tr
 
