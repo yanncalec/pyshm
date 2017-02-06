@@ -37,7 +37,7 @@ def nan_safe(func, endo=True):
         nidx = np.isnan(X0)
         X[nidx] = nv
         Y = func(X, *args, **kwargs)
-        if endo:
+        if endo and Y.shape==X.shape:
             Y[nidx] = np.nan
         return Y
     return newfunc
@@ -108,7 +108,7 @@ def get_actual_kwargs(func, **kwargs):
 
 #### Convolution and filters ####
 
-def safe_convolve(X, kernel, mode='valid'):
+def safe_convolve(X, kernel, mode="valid"):
     """FFT based nan-safe convolution.
 
     Unlike `convolve`, `fftconvolve` is not safe to nan values. This function is a wrapper of `fftconvolve` by applying a mask on the nan values.
@@ -116,27 +116,27 @@ def safe_convolve(X, kernel, mode='valid'):
     Args:
         X (1d array): input array.
         kernel (1d array): convolution kernel.
-        mode (str): truncation mode of the convolution, can be ['valid', 'full', 'samel', 'samer'].
+        mode (str): truncation mode of the convolution, can be ["valid", "full", "samel", "samer"].
     """
     assert(len(X)>=len(kernel))
 
     Xmask = np.isnan(X)
     if Xmask.any():
-        Ymask = sp.signal.convolve(Xmask, np.ones(len(kernel),dtype=bool), mode='full')
+        Ymask = sp.signal.convolve(Xmask, np.ones(len(kernel),dtype=bool), mode="full")
         X1 = X.copy()
         X1[Xmask] = 0  # setting nan to 0 may result in high frequency artifacts.
-        Y = sp.signal.fftconvolve(X1, kernel, mode='full')
+        Y = sp.signal.fftconvolve(X1, kernel, mode="full")
         Y[Ymask] = np.nan
     else:
-        Y = sp.signal.fftconvolve(X, kernel, mode='full')
+        Y = sp.signal.fftconvolve(X, kernel, mode="full")
 
-    if mode=='valid':
+    if mode=="valid":
         return Y[len(kernel)-1:1-len(kernel)]
-    elif mode=='samel':  # left side is not valid
+    elif mode=="samel":  # left side is not valid
         return Y[:1-len(kernel)]
-    elif mode=='samer':  # right side is not valid
+    elif mode=="samer":  # right side is not valid
         return Y[len(kernel)-1:]
-    else: # mode=='full':
+    else: # mode=="full":
         return Y
 
 
@@ -159,7 +159,7 @@ def circular_convolution(x, y):
 
 
 @along_axis
-def convolve_fwd(X, psi, mode='valid'):
+def convolve_fwd(X, psi, mode="valid"):
     """Forward operator of convolution.
 
     Args:
@@ -172,7 +172,7 @@ def convolve_fwd(X, psi, mode='valid'):
 
 
 @along_axis
-def convolve_bwd(X, psi, mode='full'):
+def convolve_bwd(X, psi, mode="full"):
     """Backward operator of convolution.
     """
     # the following is equivalent to
@@ -180,7 +180,7 @@ def convolve_bwd(X, psi, mode='full'):
     return safe_convolve(X, psi[::-1], mode=mode)
 
 
-def convolve_matrix(h,Nx,mode='valid'):
+def convolve_matrix(h,Nx,mode="valid"):
     """Get the matrix representation of the convolution operator.
     """
     Nh = len(h)
@@ -190,11 +190,11 @@ def convolve_matrix(h,Nx,mode='valid'):
     A = sp.linalg.toeplitz(C, R)
 
     n = Nh #min(Nh, Nx)
-    if mode=='valid':
+    if mode=="valid":
         return A[n-1:1-n]  # dim = (max(Nx,Nh)-min(Nx,Nh)+1, Nx)
-    elif mode=='samel':
+    elif mode=="samel":
         return A[:1-n]
-    elif mode=='samer':
+    elif mode=="samer":
         return A[n-1:]
     else:
         return A  # dim = (Nx+Nh-1, Nx)
@@ -244,7 +244,7 @@ def mts_cumview(X, N):
     return Y
 
 
-def KZ_filter(X0, mwsize, kzord, method='mean', causal=True):
+def KZ_filter(X0, mwsize, kzord, method="mean", causal=True):
     """Kolmogorov Zurbenko filter for pandas data sheet.
 
     The KZ filter is nothing but the recursive application of the moving
@@ -255,7 +255,7 @@ def KZ_filter(X0, mwsize, kzord, method='mean', causal=True):
         X0: input pandas DataFrame
         mwsize (int): size of moving window
         kzord (int): order of KZ filter
-        method (string): 'mean' or 'median'
+        method (string): "mean" or "median"
         causal (bool): if True use the causal filter
 
     Returns:
@@ -263,9 +263,9 @@ def KZ_filter(X0, mwsize, kzord, method='mean', causal=True):
     """
     X = X0.copy()
     for n in range(kzord):
-        if method == 'mean':
+        if method == "mean":
             X = pd.Series.rolling(X, mwsize, min_periods=1, center=not causal).mean()
-        elif method == 'median':
+        elif method == "median":
             X = pd.Series.rolling(X, mwsize, min_periods=1, center=not causal).median()
 
     X[np.isnan(X0)] = np.nan
@@ -465,7 +465,7 @@ def nmldiff_transform(X, v=None, center=False):
             center (bool): if True use centered two points difference
     """
     if not (isinstance(X, pd.DataFrame) or isinstance(X, pd.Series)):
-        raise TypeError('Input must be a pandas DataFrame or Series')
+        raise TypeError("Input must be a pandas DataFrame or Series")
 
     if v is None:
         # transformed data have a fixed magnitude range.
@@ -482,7 +482,18 @@ def nmldiff_transform(X, v=None, center=False):
 
 #### Interpolation and projection ####
 
-def interpl_timeseries(T0, Y0, dtuple=(0,60*60,0), method='spline', rounded=False, **kwargs):
+def interpl_nans(X0):
+    """Interpolation of nan values in a 1d array.
+    """
+    assert(X0.ndim==1)
+    X = X0.copy()
+    nidc = np.isnan(X)  # indicator of nan values
+    nidx = nidc.nonzero()[0]; vidx = (~nidc).nonzero()[0]  # index of nan values and normal values
+    X[nidc] = np.interp(nidx, vidx, X[~nidc])
+    return X
+
+
+def interpl_timeseries(T0, Y0, dtuple=(0,60*60,0), method="spline", rounded=False, **kwargs):
     """Regular resampling of a time-series by interpolation.
 
     Args:
@@ -504,7 +515,7 @@ def interpl_timeseries(T0, Y0, dtuple=(0,60*60,0), method='spline', rounded=Fals
 
     nbTime = int(np.floor((t_end-t_start)/dt))+1
     if nbTime <=0 :
-        raise Exception('Insufficient length of data: {}.'.format(nbTime))
+        raise Exception("Insufficient length of data: {}.".format(nbTime))
 
     dT0 = np.asarray([(t-t_start)/dt for t in T0])
     dT1 = np.arange(0, nbTime)
@@ -514,12 +525,12 @@ def interpl_timeseries(T0, Y0, dtuple=(0,60*60,0), method='spline', rounded=Fals
     # print(T1)
     # print(dT0[-1], dT1[-1])
 
-    if method=='spline':
-        Yfunc = sp.interpolate.interp1d(dT0, Y0, kind='slinear')  # use 'linear', 'slinear' can result in artefacts (a periodicity of 37 days due to accumulation of 97 seconds per hour)
-    elif method=='gp':
+    if method=="spline":
+        Yfunc = sp.interpolate.interp1d(dT0, Y0, kind="slinear")  # use "linear", "slinear" can result in artefacts (a periodicity of 37 days due to accumulation of 97 seconds per hour)
+    elif method=="gp":
         Yfunc = lambda T: gp_interpl(dT0, Y0, dT1, **kwargs)
     else:
-        raise TypeError('Unknown interpolation method')
+        raise TypeError("Unknown interpolation method")
 
     return Yfunc(dT1), T1
 
@@ -534,7 +545,7 @@ def gp_interpl(x_obs, y_obs, x_pred, nugget=1e-9):
     """
     from sklearn.gaussian_process import GaussianProcess
 
-    gp = GaussianProcess(corr='cubic', theta0=1e-2, thetaL=1e-4, thetaU=1e-1, nugget = nugget, random_start=100)
+    gp = GaussianProcess(corr="cubic", theta0=1e-2, thetaL=1e-4, thetaU=1e-1, nugget = nugget, random_start=100)
     # Fit to data using Maximum Likelihood Estimation of the parameters
     gp.fit(np.atleast_2d(x_obs).T, y_obs)
 
@@ -702,12 +713,12 @@ def remove_plateau_jumps(y0, wsize=10, thresh=5., bflag=False, dratio=0.5):
     return y1*(1-mask)+my*mask
 
 
-def detect_step_jumps(X0, method='diff', **kwargs):
+def detect_step_jumps(X0, method="diff", **kwargs):
     """Detect step jumps in a 1d array.
 
     Args:
         X0 (1d array): input array
-        method (string): method of detection, by default use 'diff'
+        method (string): method of detection, by default use "diff"
     keyword parameters :
         thresh: factor of threshold, default value 10
         mwsize: window size for the moving average, default value 24
@@ -717,25 +728,25 @@ def detect_step_jumps(X0, method='diff', **kwargs):
     """
     assert(X0.ndim==1)
 
-    if method=='diff':
-        thresh = kwargs['thresh'] if 'thresh' in kwargs.keys() else 10
-        mwsize = kwargs['mwsize'] if 'mwsize' in kwargs.keys() else 24
-        median = kwargs['median'] if 'median' in kwargs.keys() else 0.5
+    if method=="diff":
+        thresh = kwargs["thresh"] if "thresh" in kwargs.keys() else 10
+        mwsize = kwargs["mwsize"] if "mwsize" in kwargs.keys() else 24
+        median = kwargs["median"] if "median" in kwargs.keys() else 0.5
 
         # X1 = LU_filter(np.asarray(X0), 24) # Apply first a LU filter
         X1 = pd.Series(X0)
         mX = X1.rolling(mwsize, min_periods=1, center=True).mean()
         # mX = Stat.mwmean(X1, mwsize)
-        dX0 = np.abs(np.hstack((0, np.diff(mX)))); dX=dX0[::mwsize].copy()
+        dX = np.abs(np.hstack((0, np.diff(mX))))[::mwsize]
 
         sdX = np.sort(dX)
         # Take the modified median as threshold
         vthresh = thresh * sdX[int(len(sdX)*median)]
-        pidx = np.where(dX>vthresh)[0]*mwsize
+        pidx = np.where(dX>vthresh)[0] * mwsize
         # To do: add some aposteriori processing to adjust the location of jumps
         return list(pidx) #, dX, vthresh
     else:
-        raise NotImplementedError('Unknown method: %s' % method)
+        raise NotImplementedError("Unknown method: %s" % method)
 
 
 def find_block_true(X):
@@ -828,18 +839,18 @@ def time_findgap(T0, dtuple=(0, 60*60, 0)):
     # return sidx
 
 
-def time_ceil(t0, unit='hour'):
+def time_ceil(t0, unit="hour"):
     """
     Return the instant next to t0 with rounded unit (hour or minute).
     """
     if isinstance(t0, str):
         t0 = dateutil.parser.parse(t0)
 
-    if unit == 'hour':  # return the next instant with rounded hour
+    if unit == "hour":  # return the next instant with rounded hour
         flag = t0.minute > 0 or t0.second > 0 or t0.microsecond > 0
         t = t0 + datetime.timedelta(0, 60*60*flag)
         return t.replace(minute=0, second=0, microsecond=0)
-    elif unit == 'minute':  # return the next instant with rounded minute
+    elif unit == "minute":  # return the next instant with rounded minute
         flag = t0.second > 0 or t0.microsecond > 0
         t = t0 + datetime.timedelta(0, 60*flag)
         return t.replace(second=0, microsecond=0)
@@ -849,16 +860,16 @@ def time_ceil(t0, unit='hour'):
         return t.replace(microsecond=0)
 
 
-def time_floor(t0, unit='hour'):
+def time_floor(t0, unit="hour"):
     """
     Return the instance just before t0 with rounded unit (hour or minute).
     """
     if isinstance(t0, str):
         t0 = dateutil.parser.parse(t0)
 
-    if unit == 'hour':  # return the next instant with rounded hour
+    if unit == "hour":  # return the next instant with rounded hour
         return t0.replace(minute=0, second=0, microsecond=0)
-    elif unit == 'minute':  # return the next instant with rounded minute
+    elif unit == "minute":  # return the next instant with rounded minute
         return t0.replace(second=0, microsecond=0)
     else:  # return the next instant with rounded second
         return t0.replace(microsecond=0)
@@ -1033,7 +1044,7 @@ def matprod_op_left(A, dimXc):
 
 
 @along_axis
-def safe_slice(X0, tidx, wsize, mode='soft', causal=False):
+def safe_slice(X0, tidx, wsize, mode="soft", causal=False):
     """Take a slice of a nd array along given axis with safe behavior on the boundaries.
 
     Args:
@@ -1041,7 +1052,7 @@ def safe_slice(X0, tidx, wsize, mode='soft', causal=False):
         tidx (int): position where the slice will be taken
         wsize (int): size of the slice
         axis (int): axis along which the slice will be taken
-        mode (str): 'hard' (simple truncation at the boundary) or 'soft' (continuation by zero at the boundary).
+        mode (str): "hard" (simple truncation at the boundary) or "soft" (continuation by zero at the boundary).
         causal (bool): if True the window ends at tidx, otherwise the window is centered at tidx.
     Return:
         A slice of X0.
@@ -1058,7 +1069,7 @@ def safe_slice(X0, tidx, wsize, mode='soft', causal=False):
         tidx0 = tidx-int(wsize/2)+wsize-1
         tidx1 = tidx0+wsize
 
-    if mode == 'soft':  # soft mode, with zero-padding
+    if mode == "soft":  # soft mode, with zero-padding
         return X[tidx0:tidx1]
     else:  # hard mode, without zero-padding
         tidx0 = max(0, tidx0-(wsize-1))

@@ -47,7 +47,7 @@ def MLR_split_safe_call(func):
         # Processing on the residuals
         Err = Y0 - (np.dot(L, Xs) + Cvec)  # Err has the same length as Y0
         Ern,_ = Tools.remove_nan_columns(Err)
-        # Sig = la.norm(Err,'fro')**2 / (Y.size - Y.shape[0]*X.shape[0])
+        # Sig = la.norm(Err,"fro")**2 / (Y.size - Y.shape[0]*X.shape[0])
         Sig = np.dot(Ern, Ern.T) / (Y.size - Y.shape[0]*X.shape[0])  # covariance matrix
 
         # the second argument tells hsplit where to split the columns of L
@@ -146,7 +146,7 @@ def multi_linear_regression_corr(Y, X, constflag=False):
 #     return L[0][0], Cvec[0], Err[0], Sig[0]
 
 
-def linear_regression(Y, X):
+def linear_regression(Y, X, nanmode="remove"):
     """
     Linear regression of the model:
         Y = aX + b
@@ -154,8 +154,9 @@ def linear_regression(Y, X):
     Args:
         Y (1d array): the observation variable
         X (1d array): the explanatory variable
+        nanmode (str): what to do with nan values. "interpl": interpolation, "remove": remove, "zero": replace by 0
     Returns:
-        a,b: the least square solution (using scipy.sparse.linalg.cgs)
+        a, b: the least square solution (using scipy.sparse.linalg.cgs)
         err: residual error
         sigma2: estimation of the noise variance
         S: variance of the estimate a and b (as random variables)
@@ -163,73 +164,134 @@ def linear_regression(Y, X):
     assert(Y.ndim==X.ndim==1)
     assert(len(Y)==len(X))
 
-    (X0, Y0), nidx = Tools.remove_nan_columns(np.atleast_2d(X), np.atleast_2d(Y))  # the output is a 2d array
-    X0 = X0[0]; Y0 = Y0[0]  # convert to 1d array
-    if len(X0)>0:
+    if nanmode == "remove":
+        (X0, Y0), nidx = Tools.remove_nan_columns(np.atleast_2d(X), np.atleast_2d(Y))  # the output is a 2d array
+        X0 = X0[0]; Y0 = Y0[0]  # convert to 1d array
+    elif nanmode == "interpl":
+        X0 = Tools.interpl_nans(X)
+        Y0 = Tools.interpl_nans(Y)
+    else:
+        X0 = X.copy()
+        Y0 = Y.copy()
+
+    # final clean-up
+    X0[np.isnan(X0)] = 0; Y0[np.isnan(Y0)] = 0
+
+    if len(X0)>0 and len(Y0)>0:
         A = np.vstack([X0, np.ones(len(X0))]).T
         a, b = np.dot(la.pinv(A), Y0)
 
-        err = a*X + b - Y # residual
-        sigma2 =  Tools.safe_norm(err)**2 / (A.shape[0] - la.matrix_rank(A)) # non-biased estimation of noise's variance
+        err = a*X + b - Y         # residual
+        # non-biased estimation of noise's variance
+        A_rank = la.matrix_rank(A)
+        if A.shape[0] > A_rank:
+            sigma2 = la.norm(err)**2 / (A.shape[0] - A_rank)
+        else:
+            sigma2 = np.nan
         # assert(sigma2 >= 0 or np.isnan(simga2))
         S = sigma2*np.diag(la.pinv(A.T @ A))
     else:
-        a, b, err, sigma2, S = np.nan, np.nan, np.nan*np.zeros_like(Y), np.nan, np.nan*np.zeros(2)
+        raise ValueError("Linear regression failed due to lack of enough meaningful values in the inputs.")
+        # a, b, err, sigma2, S = np.nan, np.nan, np.nan*np.zeros_like(Y), np.nan, np.nan*np.zeros(2)
 
     return a, b, err, sigma2, S
 
 
 #### Moving window estimation ####
 
-def mw_linear_regression_with_delay(Y0, X0, D0=None, wsize=24*10, dlrange=(-12,12)):
+def optimal_delay(X, Y, tidx, dlrange):
+    """Estimate the local optimal delay of a time series X wrt another Y using linear regression.
+
+    Given the time index tidx and the range dlrange of validate delay, the
+    optimal delay on X is determined by selecting a subsequence of size of Y
+    on a moving window centered around tidx, such that the error of linear
+    regression between the windowed X and Y is minimized.
+
+    Returns:
+    dt: estimated optimal delay
+    res: result of linear regression
+    corr: optimal correlation
+    Xd: optimal delayed slice of X
+    """
+    res = []
+    
+    for n in range(*dlrange):
+        Xn = Tools.safe_slice(X, tidx-n, Y.size, mode="soft")
+        try:
+           Reslist.append(linear_regression(Y, Xn))
+        except Exception:   
+            res.append(None)
+
+    # the optimal delay is taken as the one minimizing the residual of LS
+    toto = np.asarray([np.nan if r is None else la.norm(r[2]) for r in res])
+    if np.isnan(toto).any():
+        # at least one of the linear regression failed, we cannot use
+        # argmin/argmax which always return the index of the first nan if the
+        # array contains nan
+
+        # nidx = None
+        raise ValueError("Optimal delay cannot be determined due to nan(s).")
+    else:
+        # all linear regressions are successful
+        nidx = np.argmin(toto)
+
+        dt = dlrange[0] + nidx
+        Xd = Tools.safe_slice(X, tidx-dt, Y.size, mode="soft")
+        # print("corr = {}".format(corr(Xd,Y)))
+        return dt, res[nidx], corr(Xd, Y), Xd
+    # else:
+    #     return np.nan, None, np.nan, None
+        # return None, None, None, None
+
+
+def mw_linear_regression_with_delay(Y0, X0, D0=None, wsize=24*10, dlrange=(-6,6)):
     """Moving window linear regression of two time series with delay.
 
     We suppose that X is related to Y through:
         Y[t] = K[t]*X[t-D[t]] + B[t] + error
-    Provided D, the linear regression estimates the scalars K[t], B[t] on a moving window centered around t.
-    If D is not given, the function estimates the optimal delay D[t] on X by solving a series of linear regression problems using different values and selecting the one minimizing the residual.
+    Provided the delay D, the linear regression estimates the scalars K[t], B[t]
+    on a moving window centered around t.  If D is not given, the function has
+    to estimate the optimal delay D[t] of X by solving a series of linear
+    regression problems with a range of trial values and select the one
+    minimizing the residual.
 
     Args:
         Y0 (1d array): observation variable
         X0 (1d array): explanatory variable
-        D0 (1d array): delay, if provided then D0 is used as delay for linear regression and dlrange will be ignored (no estimation of delay)
+        D0 (1d array of int): delay, if provided then D0 is used as delay for linear regression and dlrange will be ignored (no estimation of delay)
         wsize (int): size of the moving window
-        dlrange (tuple of int):  range in which the optimal delay will be searched
+        dlrange (tuple of int):  range in which the optimal delay is searched
     Returns:
-        D, C, K, B: estimated delay, correlation, slope, intercept
+        D, C, K, B: estimated delay (if D0 not given), correlation, slope, intercept
+
     """
-    def optimal_delay(X, Y, tidx, dlrange):
-        """Estimate the optimal delay of a long time series X wrt another short time series Y using linear regression. The optimal delay on X is determined by selecting a subsequence of size of Y on a moving window centered around tidx, such that the error of linear regression between the windowed X and Y is minimized."""
-        res = []
-        for n in range(*dlrange):
-            Xn = Tools.safe_slice(X, tidx-n, Y.size, mode='soft')
-            res.append(linear_regression(Y, Xn))
-
-        # the optimal delay is taken as the one minimizing the residual of LS
-        nidx = np.argmin([la.norm(r[2]) for r in res]) # argmin/argmax always return 0 if data contain nan
-        dt = dlrange[0] + nidx
-        Xd = Tools.safe_slice(X, tidx-dt, Y.size, mode='soft')
-        return dt, res[nidx], corr(Xd, Y), Xd
-
     assert(X0.ndim == Y0.ndim == 1)
     assert(len(X0) == len(Y0))
 
     # quantities after compensation of thermal delay
-    D = np.zeros(len(X0), dtype=int) if D0 is None else D0
+    D = np.zeros(len(X0)) if D0 is None else D0
     C = np.zeros(len(X0))
     K = np.zeros(len(X0))
     B = np.zeros(len(X0))
 
     for tidx in range(len(X0)):
-        y = Tools.safe_slice(Y0, tidx, wsize, mode='soft')
+        # select Y on a window
+        y = Tools.safe_slice(Y0, tidx, wsize, mode="soft")
         if D0 is None:
-            D[tidx], res, C[tidx], _ = optimal_delay(X0, y, tidx, dlrange)
-            K[tidx], B[tidx] = res[0], res[1]
+            # if delay is not provided, estimate the optimal delay
+            try:
+                D[tidx], res, C[tidx], _ = optimal_delay(X0, y, tidx, dlrange)
+                K[tidx], B[tidx] = res[0], res[1]
+            except Exception:                
+                D[tidx], C[tidx], K[tidx], B[tidx] = np.nan, np.nan, np.nan, np.nan
         else:
-            Xd = Tools.safe_slice(X0, tidx-D0[tidx], y.size, mode='soft')
-            res = linear_regression(y, Xd)
-            K[tidx], B[tidx] = res[0], res[1]
-            C[tidx] = corr(Xd, y)
+            Xd = Tools.safe_slice(X0, tidx-D0[tidx], y.size, mode="soft")
+            try:
+                K[tidx], B[tidx], *_ = linear_regression(y, Xd)
+                # K[tidx], B[tidx] = res[0], res[1]
+                C[tidx] = corr(Xd, y)
+            except Exception:
+                K[tidx], B[tidx], C[tidx] = np.nan, np.nan, np.nan
 
     return D, C, K, B
 
@@ -277,14 +339,14 @@ def local_mean_std(X, mwsize, mad=False, causal=False, drop=True):
     if drop:
         mErr.iloc[:int(mwsize*1.1)]=np.nan
         sErr.iloc[:int(mwsize*1.1)]=np.nan
-        
+
     if isinstance(X, pd.Series) or isinstance(X, pd.DataFrame):
         return mErr, sErr
     else:
         return np.asarray(mErr), np.asarray(sErr)
 
 
-def Hurst(data, mwsize, sclrng=None, wvlname='haar'):
+def Hurst(data, mwsize, sclrng=None, wvlname="haar"):
     """Estimate the Hurst exponent of a time series using wavelet transform.
 
     Args:
@@ -310,8 +372,8 @@ def Hurst(data, mwsize, sclrng=None, wvlname='haar'):
     C0 = []
     for n in range(1, maxlvl+1):
         phi, psi, x = wvl.wavefun(level=n) # x is the grid for wavelet
-        # C0.append(scipy.signal.fftconvolve(data, psi/2**((n-1)/2), mode='same'))
-        C0.append(Tools.safe_convolve(data, psi/2**((n-1)/2), mode='samel'))
+        # C0.append(scipy.signal.fftconvolve(data, psi/2**((n-1)/2), mode="same"))
+        C0.append(Tools.safe_convolve(data, psi/2**((n-1)/2), mode="samel"))
     C = np.asarray(C0)  # matrix of wavelet coefficients, each column is a vector of coefficients
 
     # Compute the wavelet spectrum
@@ -320,7 +382,7 @@ def Hurst(data, mwsize, sclrng=None, wvlname='haar'):
     # S0 = []
     # for n in range(0, maxlvl-1): #sclrng):
     #     Cs = pd.Series(C[n, :]**2)  # wavelet spectrum in pandas format
-    #     S0.append(np.asarray(Cs.rolling(window=mwsize, center=True, min_periods=1).mean())) #, win_type='boxcar').mean())
+    #     S0.append(np.asarray(Cs.rolling(window=mwsize, center=True, min_periods=1).mean())) #, win_type="boxcar").mean())
     # S = np.asarray(S0)
 
     # Linear regression
@@ -328,19 +390,22 @@ def Hurst(data, mwsize, sclrng=None, wvlname='haar'):
     xvar = np.arange(*sclrng)  # explanatory variable
     for t in range(Nt):
         yvar = np.log2(S[sclrng[0]:sclrng[1],t])
-        a, b, err, sigma2, v = linear_regression(yvar, xvar)
+        try:
+            a, b, err, sigma2, v = linear_regression(yvar, xvar, nanmode="interpl")
+        except:
+            a, b, err, sigma2, v = np.nan, np.nan, None, np.nan, np.nan * np.ones(2)
+            
         H[t] = (a-1)/2
         B[t] = b
         V[:,t] = v
-
-    # drop the begining
 
     # roll to get a causal result
     sc = mwsize//2
     H = np.roll(H, -sc); H[-sc:] = np.nan
     B = np.roll(B, -sc); B[-sc:] = np.nan
     V = np.roll(V, -sc); V[:,-sc:] = np.nan
-    
+
+    # drop the begining
     H[:mwsize] = np.nan
     B[:mwsize] = np.nan
     V[:,:mwsize] = np.nan
@@ -427,37 +492,41 @@ def pca(X0, nc=None, sflag=False):
     else:
         return C[:nc,:], U[:,:nc]
 
-# @Tools.nan_safe
-# def corr(x,y):
-#     return np.corrcoef(x,y)[:x.shape[0], x.shape[0]:]
+@Tools.nan_safe
+def corr(x0, y0):
+    x = np.atleast_2d(x0)
+    y = np.atleast_2d(y0)
+    toto = np.corrcoef(x, y)[:x.shape[0], x.shape[0]:]
+    # print(len(x), len(y), x.shape, toto0)
+    return np.squeeze(toto)*1.
 
-def corr(x, y):
-    """Compute the correlation matrix of two multi-variate random variables.
+# def corr(x, y):
+#     """Compute the correlation matrix of two multi-variate random variables.
 
-    Similar to the numpy function corrcoef but is safe to nan (treat as zero) and complex variables.
+#     Similar to the numpy function corrcoef but is safe to nan (treat as zero) and complex variables.
 
-    Args:
-        x (1d or 2d array):  each column of x is a sample from the first variable.
-        y (1d or 2d array):  each column of y is a sample from the second variable. y must have the same number of columns as x.
-    Return:
-        The correlation matrix, with the (i,j) element being corr(x_i, y_j)
-    """
-    if x.ndim==1:
-        x = x[np.newaxis,:]
-        x[np.isnan(x)] = 0
-    if y.ndim==1:
-        y = y[np.newaxis,:]
-        y[np.isnan(y)] = 0
+#     Args:
+#         x (1d or 2d array):  each column of x is a sample from the first variable.
+#         y (1d or 2d array):  each column of y is a sample from the second variable. y must have the same number of columns as x.
+#     Return:
+#         The correlation matrix, with the (i,j) element being corr(x_i, y_j)
+#     """
+#     if x.ndim==1:
+#         x = x[np.newaxis,:]
+#         x[np.isnan(x)] = 0
+#     if y.ndim==1:
+#         y = y[np.newaxis,:]
+#         y[np.isnan(y)] = 0
 
-    assert(x.shape[1]==y.shape[1])
+#     assert(x.shape[1]==y.shape[1])
 
-    mx = np.mean(x, axis=1); my = np.mean(y, axis=1)
-    xmx = x-mx[:, np.newaxis]; ymy = y-my[:,np.newaxis]
-    dx = np.sqrt(np.mean(np.abs(xmx)**2, axis=1)) # standard deviation of X
-    dy = np.sqrt(np.mean(np.abs(ymy)**2, axis=1)) # standard deviation of Y
-    # vx = mean(abs(xmx)**2, axis=1); vy = mean(abs(ymy)**2, axis=1)
+#     mx = np.mean(x, axis=1); my = np.mean(y, axis=1)
+#     xmx = x-mx[:, np.newaxis]; ymy = y-my[:,np.newaxis]
+#     dx = np.sqrt(np.mean(np.abs(xmx)**2, axis=1)) # standard deviation of X
+#     dy = np.sqrt(np.mean(np.abs(ymy)**2, axis=1)) # standard deviation of Y
+#     # vx = mean(abs(xmx)**2, axis=1); vy = mean(abs(ymy)**2, axis=1)
 
-    return np.squeeze((xmx/dx[:,np.newaxis]) @ (np.conj(ymy.T)/dy[np.newaxis,:])) / x.shape[1]
+#     return np.squeeze((xmx/dx[:,np.newaxis]) @ (np.conj(ymy.T)/dy[np.newaxis,:])) / x.shape[1]
 
 
 # def safe_corr(X0, Y0):

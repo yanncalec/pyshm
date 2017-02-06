@@ -420,18 +420,18 @@ class DmxDeconv(MxDeconv):
             dconstflag (bool): if True use constant in the decorrelation model.
             dlen (int): uniform length of all decorrelation kernels. If not given use the same lengths as the deconvolution kernels.
         """
-        # raw inputs, remark that Xvar here will denote the decorrelated inputs
+        # raw inputs, remark that Xvar in this class denote not the original inputs but the decorrelated ones
         Xraw = [X] + [V for V in args[::2]]
         self.dconstflag = dconstflag
 
         # lags for decorrelation models
         dlags = [lag]+list(args[1::2]) if dlen is None else [dlen]*len(Xraw)
 
-        # Decorrelation of inputs. Mxds are the trained decorrelation models, and Ws is the decorrelated inputs which will be stored as self.Xvar. We drop the last lag in dlags since it is not used in the decorrelation models.
+        # Decorrelation of inputs. Mxds are the trained decorrelation models, and Ws is the decorrelated inputs which will be stored as self.Xvar. We drop the last lag in dlags since it is not used by the decorrelation models.
         self.Mxds, Ws = DmxDeconv._decorr_fit(Xraw, dlags[:-1], constflag=dconstflag)
 
         # Call parent class constructor with the decorrelated inputs
-        toto = self._combine_inputs(Ws[1:], args[1::2])
+        toto = self._combine_inputs(Ws[1:], args[1::2])  # [1:] since the first input is intact
         super().__init__(Y, X, lag, *toto)  # Ws are then stored in self.Xvar
 
     @staticmethod
@@ -535,21 +535,21 @@ class ShfDeconv(shfinvsp, DmxDeconv):
         # Ws = self.decorr(X, *args, constflag=False)
         # Am = MxDeconv.predict(Ws[0], *Ws[1:], constflag=False)
         # Not adding constant vector here
-        At, As = super().predict(X, *args, constflag=False)
+        _Yt, _Ys = super().predict(X, *args, constflag=False)
 
         # Compute the constant vector
         bv = self._fit_result[1]
         for n in range(1, len(self.lag)):
-            Smat = np.sum(self._As[n], axis=0)  # sum of the kernel matrices in the n-th group
+            Smat = np.sum(self._As[n], axis=0)  # sum of the kernel matrices in the n-th group, recall that _As are the kernel matrices
             cvec = self.Mxds[n]._fit_result[1]  # constant vectors of the decorrelation model
             bv -= np.dot(Smat, cvec)
 
         # Final result
         if constflag:
-            Yt = self.projection_ImT(At) + np.dot(bv, self._povec)
+            Yt = self.projection_ImT(_Yt) + np.dot(bv, self._povec)
         else:
-            Yt = self.projection_ImT(At)
-        Ys = [self.projection_ImT(y) for y in As]
+            Yt = self.projection_ImT(_Yt)
+        Ys = [self.projection_ImT(y) for y in _Ys]
         self._predict_result_final = (Yt, Ys)
 
         return self._predict_result_final

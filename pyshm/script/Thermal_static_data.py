@@ -3,7 +3,9 @@
 """Analysis of static data using the simple linear model with estimation of thermal delay.
 """
 
-from pyshm.script import static_data_analysis_template
+import sys, os, argparse
+from pyshm.script import static_data_analysis_template, examplestyle, warningstyle
+
 
 class Options:
     verbose=False  # print message
@@ -17,7 +19,20 @@ class Options:
 
 
 @static_data_analysis_template
-def Thermal_static_data(options, Xcpn, Ycpn):
+def Thermal_static_data(Xcpn, Ycpn, options):
+    """Wrapper function of _Thermal_static_data for decorator functional.
+
+    Args:
+        infile (str): name of pickle file containing the preprocessed static data
+        outdir0 (str): name of the directory for the output
+        options (Options): instance containing the fields of the class Options
+    Return:
+        same as _Deconv_static_data.
+    """
+    return _Thermal_static_data(Xcpn, Ycpn, options)
+
+
+def _Thermal_static_data(Xcpn, Ycpn, options):
     """
     Args:
         infile (str): name of pickle file containing the preprocessed static data
@@ -25,25 +40,22 @@ def Thermal_static_data(options, Xcpn, Ycpn):
         options (Options): instance containing the fields of the class Options
     Return:
         a dictionary containing the following fields:
-        Yprd: final prediction from inputs
-        Aprd: contribution of the first group of inputs
-        Bprd: contribution of the second group of inputs, if exists
-        Yerr: error of prediction
-        Mxd: objects of deconvolution model
     """
 
-    from pyshm import Models, Stat, Tools
+    from pyshm import Stat, Tools
     import numpy as np
     import pandas as pd
 
     D0 = {}  # thermal delay
-    C0 = {}  # correlation
+    C0 = {}  # correlation between temperature and elongation
     K0 = {}  # slope or thermal expansion coefficient
     B0 = {}  # intercept
+    
     D1 = {}  # thermal delay
     C1 = {}  # correlation
     K1 = {}  # slope or thermal expansion coefficient
     B1 = {}  # intercept
+    
     Yprd0 = {}  # final prediction from inputs
     Yerr0 = {}  # error of prediction
 
@@ -51,29 +63,34 @@ def Thermal_static_data(options, Xcpn, Ycpn):
     Locations = list(Xcpn.keys())
 
     if options.verbose:
-        print('Analysis of the \'{}\' component...'.format(options.component.upper()))
+        print('Analysis of thermal properties of the \'{}\' component...'.format(options.component.upper()))
 
     for aloc in Locations:
         if options.verbose:
-            print('   Processing the location {}...'.format(aloc))
+            print('\tProcessing the location {}...'.format(aloc))
 
         # Data of observations, 1d arrays
-        Xobs = np.asarray(Xcpn[aloc].diff())
-        Yobs = np.asarray(Ycpn[aloc].diff())
+        Xobs = np.asarray(Xcpn[aloc])
+        Yobs = np.asarray(Ycpn[aloc])
+        Xvar = np.asarray(Xcpn[aloc].diff())
+        Yvar = np.asarray(Ycpn[aloc].diff())
 
         # Estimation of optimal delay
-        D0[aloc], C0[aloc], K0[aloc], B0[aloc] = Stat.mw_linear_regression_with_delay(Yobs, Xobs, wsize=options.wsize, dlrange=options.dlrange)
+        D0[aloc], C0[aloc], K0[aloc], B0[aloc] = Stat.mw_linear_regression_with_delay(Yvar, Xvar, wsize=options.wsize, dlrange=options.dlrange)
 
         # Smoothing of estimation
-        toto = Tools.LU_filter(D0[aloc], wsize=options.luwsize) # wsize ranges from 3*24 to 10*24
-        toto[np.isnan(toto)]=0
-        D1[aloc] = np.int32(toto)
+        toto0 = Tools.LU_filter(D0[aloc], wsize=options.luwsize)  # smoothed estimation of delay
+        toto = toto0.copy(); toto[np.isnan(toto)] = 0  # make a copy and convert nan to 0
 
         # Second regression with the smoothed estimation
-        D1[aloc], C1[aloc], K1[aloc], B1[aloc] = Stat.mw_linear_regression_with_delay(Yobs, Xobs, D0=D0[aloc], wsize=options.wsize, dlrange=options.dlrange)
-
+        _, C1[aloc], K1[aloc], B1[aloc] = Stat.mw_linear_regression_with_delay(Yvar, Xvar, D0=np.int32(toto), wsize=options.wsize, dlrange=options.dlrange)
+        D1[aloc] = np.int32(toto0)
+        
         # Prediction and error
-        Yprd0[aloc] = K1[aloc] * Xobs + B1[aloc]
+        didx = np.minimum(len(Xobs)-1, np.maximum(0, np.arange(len(Xobs)) + D1[aloc]))
+        Xobs_delayed = Xobs[didx]
+        
+        Yprd0[aloc] = K1[aloc] * Xobs_delayed + B1[aloc]
         Yerr0[aloc] = Yobs - Yprd0[aloc]
 
     # D_raw = pd.DataFrame(D0, columns=Ycpn.columns, index=Tidx)
@@ -85,28 +102,45 @@ def Thermal_static_data(options, Xcpn, Ycpn):
     Yprd = pd.DataFrame(Yprd0, columns=Ycpn.columns, index=Tidx)
     Yerr = pd.DataFrame(Yerr0, columns=Ycpn.columns, index=Tidx)
 
-    return {'Delay':D, 'Corr':C, 'Slope':K, 'Intercept':B, 'Yprd':Yprd, 'Yerr':Yerr}
+    return {'Delay':D, 'Correlation':C, 'Slope':K, 'Intercept':B, 'Yprd':Yprd, 'Yerr':Yerr}
 
 # __all__ = ['Thermal_static_data', 'Options']
 
 __script__ = __doc__
 
+__warning__ = "Warning:" + warningstyle("\n This script can be applied only on data preprocessed by the script osmos_preprocessing (the data file is typically named Preprocessed_static.pkl). Two distinct models (static and dynamic) are implemented and are accessible via the corresponding subcommand.")
 
-import sys, os, argparse
+examples = []
+examples.append(["%(prog)s -h", "Print this help messages (about common parameters)"])
+examples.append(["%(prog)s static -h", "Print help messages about the static model"])
+examples.append(["%(prog)s dynamic -h", "Print help messages about the dynamic model"])
+examples.append(["%(prog)s static DBDIR/153 OUTDIR/153 --alocs=754 --time0 2016-03-01 --time1 2016-08-01 -vv", "Apply the static model on the preprocessed data of the project of PID 153 for the period from 2016-03-01 to 2016-08-01, and save the results in the directory named OUTDIR/153. Process only the sensor of location 754 (--alocs=754), use the temperature of the same sensor to explain the elongation data (scalar model). Print supplementary messages."])
+examples.append(["%(prog)s static DBDIR/153 OUTDIR/153 --alocs=754,755 --ylocs=0 -v", "Process the sensors of location 754 and 755, for each of them use the temperature of both to explain the elongation data (vectorial model)."])
+examples.append(["%(prog)s static DBDIR/153 OUTDIR/153 --ylocs=0 -v", "Process all sensors, for each of them use the temperature  of all to explain the elongation data."])
+examples.append(["%(prog)s static DBDIR/153 OUTDIR/153 -v", "Process all sensors, for each of them use the temperature data of all and the elongation data the others to explain the elongation data (deconvolution with multiple inputs)."])
+examples.append(["%(prog)s static DBDIR/153 OUTDIR/153 --time0 2016-03-01 --Ntrn 1000 -v", "Change the length of the training period to 1000 hours starting from the begining of the truncated data set which is 2016-03-01."])
+examples.append(["%(prog)s static DBDIR/153 OUTDIR/153 --component=seasonal -v", "Process the seasonal component of data."])
+examples.append(["%(prog)s dynamic DBDIR/153 OUTDIR/153 -v", "Use the dynamic model (Kalman filter) to process all sensors."])
+
+__example__ = "Some examples of use (change the path seperator '/' to '\\' on Windows platform):" + "".join([examplestyle(x) for x in examples])
+
 
 def main():
-    usage_msg = '%(prog)s [options] <infile> [outdir]'
+    # usage_msg = '%(prog)s [options] <infile> [outdir]'
+    # parser = argparse.ArgumentParser(description=__script__, usage=usage_msg)
+    parser = argparse.ArgumentParser(description=__script__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter,
+                                     epilog=__warning__ + "\n\n" + __example__)
 
-    parser = argparse.ArgumentParser(description=__script__, usage=usage_msg)
-
-    parser.add_argument('infile', type=str, help='preprocessed data file containing all sensors of one project (see the script Preprocessing_of_data.py)')
+    parser.add_argument('projdir', help='directory of a project in the database including the preprocessed static data.')
     parser.add_argument('outdir', nargs='?', type=str, default=None, help='directory where results (figures and data files) are saved.')
 
     sensor_opts = parser.add_argument_group('Sensor options')
     sensor_opts.add_argument('--component', dest='component', type=str, default='Trend', help='Type of component of data for analysis: Trend (default), Seasonal, All.', metavar='string')
 
     wdata_opts = parser.add_argument_group('Data truncation options')
-    wdata_opts.add_argument('--timerange', dest='timerange', nargs=2, type=str, default=[None,None], help='Starting and ending timestamp index (default=the whole data set).', metavar='YYYY-MM-DD')
+    wdata_opts.add_argument('--time0', dest='time0', type=str, default=None, help='Starting timestamp (default=the begining of data set).', metavar='YYYY-MM-DD')
+    wdata_opts.add_argument('--time1', dest='time1', type=str, default=None, help='Ending timestamp (default=the ending of data set).', metavar='YYYY-MM-DD')
 
     ddata_opts = parser.add_argument_group('Component decomposition options')
     ddata_opts.add_argument('--mwmethod', dest='mwmethod', type=str, default='mean', help='Type of moving window mean estimator for decomposition of component: mean (default), median.', metavar='string')
@@ -124,26 +158,61 @@ def main():
 
     options = parser.parse_args()
 
+    # check the input data file
+    options.infile = os.path.join(options.projdir, 'Preprocessed_static.pkl')
     if not os.path.isfile(options.infile):
+        print('Preprocessed static data not found! Have you already run osmos_preprocess?')
         raise FileNotFoundError(options.infile)
-    # output directory
-    if options.outdir is None:
-        idx2 = options.infile.rfind(os.path.sep, 0)
-        idx1 = options.infile.rfind(os.path.sep, 0, idx2)
-        idx0 = options.infile.rfind(os.path.sep, 0, idx1)
-        outdir0 = os.path.join(options.infile[:idx0], 'Outputs', options.infile[idx1+1:idx2])
-    else:
-        outdir0 = options.outdir
 
+    if not os.path.isdir(options.outdir):
+        raise FileNotFoundError(options.outdir)
+    # if options.outdir is None:
+    #     idx2 = options.infile.rfind(os.path.sep, 0)
+    #     idx1 = options.infile.rfind(os.path.sep, 0, idx2)
+    #     idx0 = options.infile.rfind(os.path.sep, 0, idx1)
+    #     outdir0 = os.path.join(options.infile[:idx0], 'Outputs', options.infile[idx1+1:idx2])
+
+    # create a subfolder for output
     func_name = __name__[__name__.rfind('.')+1:]
-    outdir = os.path.join(outdir0,'{}_[{}_wsize={}_dlrange={}]'.format(func_name, options.component.upper(), options.wsize, tuple(options.dlrange)))
+    outdir = os.path.join(options.outdir, '{}_[{}]'.format(func_name, options.component.upper()))
+    # outdir = os.path.join(options.outdir, '{}_[{}_{}_lagx={}_lagy={}_timerange=({},{})]'.format(func_name, options.subcommand.upper(), options.component.upper(), options.lagx, options.lagy, options.timerange[0], options.timerange[1]))
     try:
         os.makedirs(outdir)
     except OSError:
         pass
-    outfile = os.path.join(outdir, 'Results.pkl')
+
+    outfile = os.path.join(outdir, 'Results')
 
     _ = Thermal_static_data(options.infile, outfile, options)
+
+    # # final output file name
+    # if options.alocs is None:
+    #     outfile0 = 'Results_All'
+    # else:
+    #     outfile0 = 'Results_{}'.format(options.alocs).replace(' ', '')
+    # outfile = os.path.join(outdir, outfile0)
+
+
+
+
+
+    # if not os.path.isfile(options.infile):
+    #     raise FileNotFoundError(options.infile)
+    # # output directory
+    # if options.outdir is None:
+    #     idx2 = options.infile.rfind(os.path.sep, 0)
+    #     idx1 = options.infile.rfind(os.path.sep, 0, idx2)
+    #     idx0 = options.infile.rfind(os.path.sep, 0, idx1)
+    #     outdir0 = os.path.join(options.infile[:idx0], 'Outputs', options.infile[idx1+1:idx2])
+    # else:
+    #     outdir0 = options.outdir
+
+    # func_name = __name__[__name__.rfind('.')+1:]
+    # outdir = os.path.join(outdir0,'{}_[{}_wsize={}_dlrange={}]'.format(func_name, options.component.upper(), options.wsize, tuple(options.dlrange)))
+    # try:
+    #     os.makedirs(outdir)
+    # except OSError:
+    #     pass
 
 
 if __name__ == "__main__":

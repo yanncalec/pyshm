@@ -23,8 +23,14 @@ class MyEncoder(json.JSONEncoder):
             return super(MyEncoder, self).default(obj)
 
 
-def load_data(fname):
-    """Utility function for loading pickle or json file saved by Thermal_* or Deconv_* scripts.
+def load_result_of_analysis(fname):
+    """Utility function for loading pickle or json file saved by Thermal_static_data
+    or Deconv_static_data scripts.
+
+    Args:
+        fname (str): input file name
+    Return:
+        Res: a dictionary containing the contents of the input file
     """
     idx = fname.rfind('.')
     if fname[idx+1:].lower() == 'pkl':
@@ -67,7 +73,7 @@ def per_sensor_result(X, Locations, aflag=True):
     return Res
 
 
-def to_json(X):
+def to_json(X, verbose=False):
     """Convert the values of pandas instances in a dictionary to json format.
 
     Args:
@@ -79,13 +85,21 @@ def to_json(X):
             Res[k] = v.to_json(date_unit='s', date_format='iso')
         else:
             try:
-                # if the value can be converted to json, keep as it is
-                # json will not dump dictionary unless all keys are string
-                u = {str(k):v for k,v in v.items()}
-                json.dumps(u, cls=MyEncoder)
-                Res[k] = u
-            except Exception as msg: #TypeError:
-                # print(k, msg)
+                # if the value can be converted to json or if it is None, keep
+                # as it is json will not dump dictionary unless all keys are
+                # string.
+                if isinstance(v, dict):
+                    u = {str(k):v for k,v in v.items()}
+                    json.dumps(u, cls=MyEncoder)
+                    Res[k] = u
+                elif v is None:
+                    Res[k] = v
+                else:
+                    # This should not happen:
+                    raise TypeError('The values of the input dictionary must be dictionary or None.')
+            except Exception as msg:
+                if verbose:
+                    print(warningstyle("Warning: {}".format(msg)))
                 pass
     return Res
 
@@ -110,7 +124,7 @@ def prepare_data(infile, component='Trend', mwsize=24, kzord=1, mwmethod='mean',
     if component.upper() in ['SEASONAL', 'TREND']:
         if verbose:
             print('Decomposition of signals...')
-            print('   Moving window estimator: {}\n   Moving window size: {}\n   Order of the KZ filter: {}\n'.format(mwmethod, mwsize, kzord))
+            print('\tMoving window estimator: {}\n\tMoving window size: {}\n\tOrder of the KZ filter: {}'.format(mwmethod, mwsize, kzord))
 
         # Decomposition of signals
         Ttrd0, Tsnl0 = OSMOS.trend_seasonal_decomp(Tall0, mwsize=mwsize, kzord=kzord, method=mwmethod)
@@ -168,7 +182,7 @@ def static_data_analysis_template(func):
 
         # Save the results in json format:
         # some non-standard objects might be removed, and non-float values will be casted as float
-        resjson = to_json(resdic)
+        resjson = to_json(resdic, verbose=options.verbose)
         # print(resjson.keys())
         with open(outfile0+'.json', 'w') as fp:
             json.dump(resjson, fp, cls=MyEncoder)

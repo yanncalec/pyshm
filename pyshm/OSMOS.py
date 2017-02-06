@@ -201,7 +201,7 @@ def assemble_to_pandas(projdir):
 
         with open(os.path.join(projdir,'Raw.pkl'), 'wb') as fp:
             # record is the LIRIS information
-            pickle.dump({'LIRIS':Liris, 'Data':Data}, #'Static_Data':Static_Data},
+            pickle.dump({'LIRIS':Liris, 'Data':Data},
                         fp, protocol=pickle.HIGHEST_PROTOCOL)
     else:
         raise Exception('Empty project.')
@@ -285,18 +285,18 @@ def static_data_preprocessing(X0,
 
         # 4. Jumps
         if jflag:
-            Jidx = Tools.detect_step_jumps(X1['Elongation'], method='diff', thresh=20, mwsize=24, median=0.8)
+            Jidx = Tools.detect_step_jumps(X1['Elongation'], method='diff', thresh=8, mwsize=2, median=0.8)
         else:
             Jidx = []
-
+        
         # Add the Type column
         Type1 = pd.Series(data=np.zeros(len(X1), dtype=int), index=X1.index)
         if len(Rtsx)>0:
             Type1.loc[Rtsx]+=0b001  # loc since Rtsx are time-stamp indexes
         if len(Ntsx)>0:
-            Type1.loc[Ntsx]+=0b010  # iloc since Nidx are ints
+            Type1.loc[Ntsx]+=0b010  
         if len(Jidx)>0:
-            Type1.iloc[Jidx]+=0b100
+            Type1.iloc[Jidx]+=0b100  # iloc since Jidx are integers
 
         X1['Type']=Type1
         return X1
@@ -341,6 +341,9 @@ def resampling_time_series(X, rsp='H', m=6):
 def load_raw_data(fname):
     """Load raw data from a given file.
 
+    Raw data are in pandas format and containing only three fields: Temperature,
+    Elongation, Type.
+
     Args:
         fname (string): pickle file name containing assembled Osmos data
     Returns:
@@ -348,11 +351,16 @@ def load_raw_data(fname):
         Sdata (dict): static data
         Ddata (dict): dynamic data (elongation only, no temperature)
         Locations (list): location keyid of sensors
+
     """
     with open(fname, 'rb') as fp:
         toto = pickle.load(fp)
 
-    Rdata = toto['Data']
+    try:
+        Rdata = toto['Data']
+        Liris = toto['LIRIS']
+    except Exception:
+        raise TypeError('{}: No raw data found in the input file.'.format(fname))
 
     Locations = list(Rdata.keys())
     Locations.sort()
@@ -379,8 +387,13 @@ def load_raw_data(fname):
 def load_static_data(fname):
     """Load preprocessed static data from a given file.
 
+    Static data are in pandas format and containing only three fields:
+    Temperature, Elongation, Type. It is hence impossible to distinguish raw and
+    preprocessed data only from their format. As a solution we can use the field
+    'LIRIS' of the raw data file (cf. assemble_to_pandas()) as indicator.
+
     Args:
-        fname (string): name of the pickle file that contains preprocessed static data
+        fname (string): name of the pickle file that contains preprocessed static data in pandas format
     Returns:
         Data (dict): static data of all sensors
         Xall (pandas DataFrame): concatenated temperature of all sensors
@@ -389,11 +402,21 @@ def load_static_data(fname):
 
     Remark:
         The concatenated data Xall, Yall may be longer than Data.
+
     """
 
     with open(fname, 'rb') as fp:
         toto = pickle.load(fp)
-    Data0 = toto['Data']
+
+    try:
+        Data0 = toto['Data']
+    except Exception:
+        raise TypeError('{}: No preprocessed data found in the input file.'.format(fname))
+
+    if len(toto.keys()) > 1:
+        # Unlike the raw data file, the preprocessed data file contains only one field.
+        raise TypeError('{}: Not a valid file of preprocessed data.'.format(fname))
+
 
     Locations = list(Data0.keys())
     Locations.sort()
@@ -407,11 +430,15 @@ def load_static_data(fname):
         Rblx = np.asarray(list(map(lambda x:np.mod(x>>0, 2), X['Type'])), dtype=bool)
         # index of missing data
         Nblx = np.asarray(list(map(lambda x:np.mod(x>>1, 2), X['Type'])), dtype=bool)
+        # index of jumps
+        Jblx = np.asarray(list(map(lambda x:np.mod(x>>2, 2), X['Type'])), dtype=bool)
+        Jblx = np.logical_and(Jblx, np.logical_not(Nblx))  # remove the artificial jumps of missing data
 
         X[Nblx] = np.nan
         X['Missing'] = Nblx
-
-        Data[loc] = X[Rblx][['Temperature', 'Elongation', 'Missing']]
+        X['Jump'] = Jblx
+        
+        Data[loc] = X[Rblx][['Temperature', 'Elongation', 'Missing', 'Jump']]
 
 #     return Data
     Xall = concat_mts(Data, 'Temperature')[:]  # temperature of all sensors

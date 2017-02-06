@@ -11,8 +11,6 @@ import pandas as pd
 from pyshm import Stat, Tools
 from pyshm.script import load_data#, dictkey2int
 
-class Options:
-    pass
 
 
 xobs_style = {'color': 'r', 'linewidth': 1, 'alpha':0.5, 'label':'Temperature: observation'}
@@ -36,12 +34,20 @@ def plot_results(xobs0, yobs0, yprd0, aprd0, bprd0, component,
         Midx: missing index
         other parameters: see main()
     """
-    assert(len(xobs0)==len(yobs0)==len(yprd0)==len(aprd0)==len(bprd0))
+    # check length
+    assert(len(xobs0)==len(yobs0)==len(yprd0)==len(aprd0))
+    if bprd0 is not None:
+        assert(len(xobs0)==len(bprd0))
+        
     xobs = xobs0.copy(); xobs[Midx] = np.nan
     yobs = yobs0.copy(); yobs[Midx] = np.nan
     yprd = yprd0.copy(); yprd[Midx] = np.nan
     aprd = aprd0.copy(); aprd[Midx] = np.nan
-    bprd = bprd0.copy(); bprd[Midx] = np.nan
+    if bprd0 is not None:
+        bprd = bprd0.copy(); bprd[Midx] = np.nan
+    else:
+        bprd = bprd0
+        
     yerr = yobs - yprd  # residual
 
     # statistics
@@ -152,8 +158,8 @@ def plot_static_kernel(Knel):
         toto = np.asarray(K)
         # print(toto.shape)
         A = np.mean(toto, axis=-1).T
-        # print(A.shape)
-        axa = axes[n]
+        # print(A.shape, n)       
+        axa = axes if len(Knel)==1 else axes[n]
         axa.plot(A[0])
         axa.set_title('Kernel of the group {}'.format(n))
     return fig, axes
@@ -192,32 +198,33 @@ def plot_dynamic_kernel(Knel, Tidx, ncoef=3):
     return fig, axes
 
 
-import sys, os, argparse
+# import sys, os, argparse
 
-__script__ = __doc__
+# __script__ = __doc__
 
-def main():
-    # usage_msg = '%(prog)s [options] <infile> [outdir]'
-    # parser = argparse.ArgumentParser(description=__script__, usage=usage_msg)
-    parser = argparse.ArgumentParser(description=__script__)
+# def main():
+#     # usage_msg = '%(prog)s [options] <infile> [outdir]'
+#     # parser = argparse.ArgumentParser(description=__script__, usage=usage_msg)
+#     parser = argparse.ArgumentParser(description=__script__)
 
-    parser.add_argument('infile', type=str, help='file returned by the script of data analysis')
-    parser.add_argument('outdir', nargs='?', type=str, default=None, help='directory where figures are saved (default: in the same folder as infile).')
+#     parser.add_argument('infile', type=str, help='file returned by the script of data analysis')
+#     parser.add_argument('outdir', nargs='?', type=str, default=None, help='directory where figures are saved (default: in the same folder as infile).')
 
-    lstat_opts = parser.add_argument_group('Local statistic options')  # local statistics
-    lstat_opts.add_argument('--mad', dest='mad', action='store_true', default=False, help='Use median based estimator (default: use empirical estimator).')
-    lstat_opts.add_argument('--mwsize', dest='mwsize', type=int, default=240, help='Size of the moving window (default=240).', metavar='integer')
-    lstat_opts.add_argument('--vthresh', dest='vthresh', type=float, default=3., help='Threshold value for event detection in seasonal components (default=4).', metavar='float')
-    #     lstat_opts.add_argument('--causal', dest='causal', action='store_true', default=False, help='Use causal window (default: non causal).')
+#     lstat_opts = parser.add_argument_group('Local statistic options')  # local statistics
+#     lstat_opts.add_argument('--mad', dest='mad', action='store_true', default=False, help='Use median based estimator (default: use empirical estimator).')
+#     lstat_opts.add_argument('--mwsize', dest='mwsize', type=int, default=240, help='Size of the moving window (default=240).', metavar='integer')
+#     lstat_opts.add_argument('--vthresh', dest='vthresh', type=float, default=3., help='Threshold value for event detection in seasonal components (default=4).', metavar='float')
+#     #     lstat_opts.add_argument('--causal', dest='causal', action='store_true', default=False, help='Use causal window (default: non causal).')
 
-    hurst_opts = parser.add_argument_group('Hurst exponent options for trend component')  # Hurst exponent
-    # hurst_opts.add_argument('--mwsizehurst', dest='mwsizehurst', type=int, default=24*5, help='Size of the moving window (default=120).', metavar='integer')
-    hurst_opts.add_argument('--ithresh', dest='ithresh', type=float, default=0.7, help='Threshold value for instability detection (default=0.7).', metavar='float')
-    hurst_opts.add_argument('--minperiod', dest='minperiod', type=int, default=24, help='Minimal length of instability period (default=24).', metavar='integer')
+#     hurst_opts = parser.add_argument_group('Hurst exponent options for trend component')  # Hurst exponent
+#     # hurst_opts.add_argument('--mwsizehurst', dest='mwsizehurst', type=int, default=24*5, help='Size of the moving window (default=120).', metavar='integer')
+#     hurst_opts.add_argument('--ithresh', dest='ithresh', type=float, default=0.7, help='Threshold value for instability detection (default=0.7).', metavar='float')
+#     hurst_opts.add_argument('--minperiod', dest='minperiod', type=int, default=24, help='Minimal length of instability period (default=24).', metavar='integer')
 
-    parser.add_argument('-v', '--verbose', dest='verbose', action='count', default=False, help='Print message.')
+#     parser.add_argument('--html', dest='html', action='store_true', default=False, help='Generate plots in html format.')
+#     parser.add_argument('-v', '--verbose', dest='verbose', action='count', default=False, help='Print message.')
 
-    options = parser.parse_args()
+#     options = parser.parse_args()
 
     # Lazy import
     import pickle
@@ -233,6 +240,8 @@ def main():
     # Load raw data
     Res = load_data(options.infile)
     # print(Res['options'], Res['trnperiod'], Res['Ntrn'])
+    # print(Res.keys())
+    
     # output directory for figures
     if options.outdir is not None:
         figdir0 = options.outdir
@@ -246,7 +255,8 @@ def main():
     # Yerr = Res['Yerr']  # Error of prediction
     algo_options = dict(Res['algo_options'])  # options of parameters
     Aprd = Res['Aprd']  # Contribution of first group of inputs
-    Bprd = Res['Bprd'] if algo_options['lagy']>0 else None  # Contribution of second group of inputs
+    # Bprd = Res['Bprd'] if algo_options['lagy']>0 else None  # Contribution of second group of inputs
+    Bprd = Res['Bprd']  # Contribution of second group of inputs
     Knel = Res['Knel'] if 'Knel' in Res else None  # Kernel matrices
     # Mxd = Res['Mxd']  # Objects of deconvolution model
     Midx = Res['Midx']  # Indicator of missing values
@@ -299,11 +309,14 @@ def main():
             fname = os.path.join(figdir, 'Results_[window={}_thresh={}_mad={}]'.format(options.mwsize, options.vthresh, options.mad))
             # fname = os.path.join(figdir, 'Residual_[window={}_mad={}_causal={}]'.format(options.mwsize, options.mad, options.causal))
         fig.savefig(fname+'.pdf', bbox_inches='tight')
-        mpld3.save_html(fig, fname+'.html')
+        if options.html:
+            mpld3.save_html(fig, fname+'.html')
         plt.close(fig)
 
         if Knel:  # if kernel is stored in the data file
             if staticflag:
+                # print(str(loc))
+                # print(Knel[str(loc)])
                 fig, axes = plot_static_kernel(Knel[str(loc)])  # str(loc) since in Json file keys of a dictionary must be string
                 plt.suptitle('Location {}, {} component'.format(loc, component), position=(0.5,1.1),fontsize=20)
                 plt.tight_layout()
