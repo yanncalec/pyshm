@@ -214,12 +214,12 @@ def optimal_delay(X, Y, tidx, dlrange):
     Xd: optimal delayed slice of X
     """
     res = []
-    
+
     for n in range(*dlrange):
         Xn = Tools.safe_slice(X, tidx-n, Y.size, mode="soft")
         try:
-           Reslist.append(linear_regression(Y, Xn))
-        except Exception:   
+           res.append(linear_regression(Y, Xn))
+        except Exception:
             res.append(None)
 
     # the optimal delay is taken as the one minimizing the residual of LS
@@ -282,7 +282,8 @@ def mw_linear_regression_with_delay(Y0, X0, D0=None, wsize=24*10, dlrange=(-6,6)
             try:
                 D[tidx], res, C[tidx], _ = optimal_delay(X0, y, tidx, dlrange)
                 K[tidx], B[tidx] = res[0], res[1]
-            except Exception:                
+            except Exception as msg:
+                # print(msg)
                 D[tidx], C[tidx], K[tidx], B[tidx] = np.nan, np.nan, np.nan, np.nan
         else:
             Xd = Tools.safe_slice(X0, tidx-D0[tidx], y.size, mode="soft")
@@ -290,7 +291,8 @@ def mw_linear_regression_with_delay(Y0, X0, D0=None, wsize=24*10, dlrange=(-6,6)
                 K[tidx], B[tidx], *_ = linear_regression(y, Xd)
                 # K[tidx], B[tidx] = res[0], res[1]
                 C[tidx] = corr(Xd, y)
-            except Exception:
+            except Exception as msg:
+                # print(msg)
                 K[tidx], B[tidx], C[tidx] = np.nan, np.nan, np.nan
 
     return D, C, K, B
@@ -316,7 +318,7 @@ def mw_linear_regression_with_delay(Y0, X0, D0=None, wsize=24*10, dlrange=(-6,6)
     #     B[tidx] = res[midx][1]
 
 
-def local_mean_std(X, mwsize, mad=False, causal=False, drop=True):
+def local_statistics(X, mwsize, mad=False, causal=False, drop=True):
     """Local mean and standard deviation estimation using pandas library.
     """
     if isinstance(X, pd.Series) or isinstance(X, pd.DataFrame):
@@ -394,25 +396,21 @@ def Hurst(data, mwsize, sclrng=None, wvlname="haar"):
             a, b, err, sigma2, v = linear_regression(yvar, xvar, nanmode="interpl")
         except:
             a, b, err, sigma2, v = np.nan, np.nan, None, np.nan, np.nan * np.ones(2)
-            
-        H[t] = (a-1)/2
+
+        H[t] = max(min((a-1)/2,1), 0)
         B[t] = b
         V[:,t] = v
 
     # roll to get a causal result
-    sc = mwsize//2
+    sc = mwsize // 2
     H = np.roll(H, -sc); H[-sc:] = np.nan
     B = np.roll(B, -sc); B[-sc:] = np.nan
     V = np.roll(V, -sc); V[:,-sc:] = np.nan
 
     # drop the begining
-    H[:mwsize] = np.nan
-    B[:mwsize] = np.nan
-    V[:,:mwsize] = np.nan
-    # H = roll_fill(H, int(mwsize/2))
-    # B = roll_fill(B, int(mwsize/2))
-    # E = roll_fill(E, int(mwsize/2))
-    # Er = roll_fill(Er, int(mwsize/2))
+    # H[:mwsize] = np.nan
+    # B[:mwsize] = np.nan
+    # V[:,:mwsize] = np.nan
     return H, B, V
 
 

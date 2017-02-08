@@ -39,33 +39,43 @@ def _Thermal_static_data(Xcpn, Ycpn, options):
         outdir0 (str): name of the directory for the output
         options (Options): instance containing the fields of the class Options
     Return:
-        a dictionary containing the following fields:
+        a dictionary containing the following fields of estimation:
+        'Delay': thermal delay
+        'Correlation': correlation between temperature and elongation after compensation of delay
+        'Slope' and 'Intercept': thermal coefficient
+        'Yprd': prediction
+        'Yerr': residual
     """
 
     from pyshm import Stat, Tools
     import numpy as np
     import pandas as pd
 
-    D0 = {}  # thermal delay
-    C0 = {}  # correlation between temperature and elongation
-    K0 = {}  # slope or thermal expansion coefficient
-    B0 = {}  # intercept
-    
+    # Dictionaries for the first estimation
+    # D0 = {}  # thermal delay
+    # C0 = {}  # correlation between temperature and elongation
+    # K0 = {}  # slope or thermal expansion coefficient
+    # B0 = {}  # intercept
+
+    # Dictionaries estimation
     D1 = {}  # thermal delay
     C1 = {}  # correlation
     K1 = {}  # slope or thermal expansion coefficient
     B1 = {}  # intercept
-    
+
     Yprd0 = {}  # final prediction from inputs
     Yerr0 = {}  # error of prediction
 
     Tidx = Xcpn.index  # time index
     Locations = list(Xcpn.keys())
 
+    if options.alocs is None:  # sensors to be analyzed
+        options.alocs = Locations.copy()  # is not given use all sensors
+
     if options.verbose:
         print('Analysis of thermal properties of the \'{}\' component...'.format(options.component.upper()))
 
-    for aloc in Locations:
+    for aloc in options.alocs:
         if options.verbose:
             print('\tProcessing the location {}...'.format(aloc))
 
@@ -76,23 +86,33 @@ def _Thermal_static_data(Xcpn, Ycpn, options):
         Yvar = np.asarray(Ycpn[aloc].diff())
 
         # Estimation of optimal delay
-        D0[aloc], C0[aloc], K0[aloc], B0[aloc] = Stat.mw_linear_regression_with_delay(Yvar, Xvar, wsize=options.wsize, dlrange=options.dlrange)
+        # D0[aloc], C0[aloc], K0[aloc], B0[aloc] = Stat.mw_linear_regression_with_delay(Yvar, Xvar, D0=None, wsize=options.wsize, dlrange=options.dlrange)
+        toto, *_ = Stat.mw_linear_regression_with_delay(Yvar, Xvar, D0=None, wsize=options.wsize, dlrange=options.dlrange)
 
         # Smoothing of estimation
-        toto0 = Tools.LU_filter(D0[aloc], wsize=options.luwsize)  # smoothed estimation of delay
-        toto = toto0.copy(); toto[np.isnan(toto)] = 0  # make a copy and convert nan to 0
+        Ds = np.int32(Tools.LU_filter(toto, wsize=options.luwsize))  # smoothed estimation of delay
+        Ds[np.isnan(Ds)] = 0  # convert nan to 0
+        Ds[Ds>options.dlrange[1]] = 0
+        Ds[Ds<options.dlrange[0]] = 0
+        Dv = np.ones(len(Xobs), dtype=int)*np.int(np.mean(Ds))  # use the mean value as delay
 
-        # Second regression with the smoothed estimation
-        _, C1[aloc], K1[aloc], B1[aloc] = Stat.mw_linear_regression_with_delay(Yvar, Xvar, D0=np.int32(toto), wsize=options.wsize, dlrange=options.dlrange)
-        D1[aloc] = np.int32(toto0)
-        
+        # Second regression with the smoothed delay
+        _, C1[aloc], K1[aloc], B1[aloc] = Stat.mw_linear_regression_with_delay(Yvar, Xvar, D0=Dv, wsize=options.wsize, dlrange=options.dlrange)
+        D1[aloc] = Ds.copy()
+        # print(np.sum(~np.isnan(D0[aloc])))
+        # print(D1[aloc])
+
         # Prediction and error
-        didx = np.minimum(len(Xobs)-1, np.maximum(0, np.arange(len(Xobs)) + D1[aloc]))
+        # didx = np.int32(np.minimum(len(Xobs)-1, np.maximum(0, np.arange(len(Xobs)) + D1[aloc])))
+        didx = np.int32(np.minimum(len(Xobs)-1, np.maximum(0, np.arange(len(Xobs)) + Dv)))
         Xobs_delayed = Xobs[didx]
-        
-        Yprd0[aloc] = K1[aloc] * Xobs_delayed + B1[aloc]
+        if options.const:
+            Yprd0[aloc] = K1[aloc] * Xobs_delayed + B1[aloc] * np.arange(len(Xobs))
+        else:
+            Yprd0[aloc] = K1[aloc] * Xobs_delayed
         Yerr0[aloc] = Yobs - Yprd0[aloc]
 
+    # Convert to pandas format
     # D_raw = pd.DataFrame(D0, columns=Ycpn.columns, index=Tidx)
     # C_raw = pd.DataFrame(C0, columns=Ycpn.columns, index=Tidx)
     D = pd.DataFrame(D1, columns=Ycpn.columns, index=Tidx)
@@ -100,9 +120,9 @@ def _Thermal_static_data(Xcpn, Ycpn, options):
     K = pd.DataFrame(K1, columns=Ycpn.columns, index=Tidx)
     B = pd.DataFrame(B1, columns=Ycpn.columns, index=Tidx)
     Yprd = pd.DataFrame(Yprd0, columns=Ycpn.columns, index=Tidx)
-    Yerr = pd.DataFrame(Yerr0, columns=Ycpn.columns, index=Tidx)
+    # Yerr = pd.DataFrame(Yerr0, columns=Ycpn.columns, index=Tidx)
 
-    return {'Delay':D, 'Correlation':C, 'Slope':K, 'Intercept':B, 'Yprd':Yprd, 'Yerr':Yerr}
+    return {'Delay':D, 'Correlation':C, 'Slope':K, 'Intercept':B, 'Yprd':Yprd} #, 'Yerr':Yerr}
 
 # __all__ = ['Thermal_static_data', 'Options']
 
@@ -133,10 +153,11 @@ def main():
                                      epilog=__warning__ + "\n\n" + __example__)
 
     parser.add_argument('projdir', help='directory of a project in the database including the preprocessed static data.')
-    parser.add_argument('outdir', nargs='?', type=str, default=None, help='directory where results (figures and data files) are saved.')
+    parser.add_argument('outdir', type=str, default=None, help='directory where results (figures and data files) are saved.')
 
     sensor_opts = parser.add_argument_group('Sensor options')
-    sensor_opts.add_argument('--component', dest='component', type=str, default='Trend', help='Type of component of data for analysis: Trend (default), Seasonal, All.', metavar='string')
+    sensor_opts.add_argument("--alocs", dest="alocs", type=lambda s: [int(x) for x in s.split(',')], default=None, help="Location key IDs of sensors to be analyzed (default=all sensors).", metavar="integers separated by \',\'")
+    sensor_opts.add_argument("--component", dest="component", type=str, default="all", help="Type of component of data for analysis: all (default), trend, seasonal.", metavar="string")
 
     wdata_opts = parser.add_argument_group('Data truncation options')
     wdata_opts.add_argument('--time0', dest='time0', type=str, default=None, help='Starting timestamp (default=the begining of data set).', metavar='YYYY-MM-DD')
@@ -149,12 +170,12 @@ def main():
 
     model_opts = parser.add_argument_group('Model options')
     model_opts.add_argument('--wsize', dest='wsize', type=int, default=24*10, help='Length of the moving window for analysis of thermal coefficients (default=24*10).', metavar='integer')
-    model_opts.add_argument('--luwsize', dest='luwsize', type=int, default=24*5, help='Length of the smoothing window for estimation of thermal delay (default=24*10).', metavar='integer')
+    model_opts.add_argument('--luwsize', dest='luwsize', type=int, default=24*5, help='Length of the smoothing window for estimation of thermal delay (default=24*5).', metavar='integer')
     # model_opts.add_argument('--dlrange', dest='dlrange', type=tuple, default=(-6,6), help='Range of search for the optimal delay, default=(-6,6)', metavar='[integer, integer]')
     model_opts.add_argument('--dlrange', dest='dlrange', type=lambda s: [int(x) for x in s.split(',')], default=[-6,6], help='Range of search for the optimal delay, default=[-6,6]', metavar='\"integer,  integer\"')
+    model_opts.add_argument('--const', dest='const', action='store_true', default=False, help='Add constant trend in the convolution model (default: no constant trend).')
 
     parser.add_argument('-v', '--verbose', dest='verbose', action='count', default=0, help='Print message.')
-    parser.add_argument('--info', dest='info', action='store_true', default=False, help='Print only information about the project.')
 
     options = parser.parse_args()
 
@@ -166,16 +187,10 @@ def main():
 
     if not os.path.isdir(options.outdir):
         raise FileNotFoundError(options.outdir)
-    # if options.outdir is None:
-    #     idx2 = options.infile.rfind(os.path.sep, 0)
-    #     idx1 = options.infile.rfind(os.path.sep, 0, idx2)
-    #     idx0 = options.infile.rfind(os.path.sep, 0, idx1)
-    #     outdir0 = os.path.join(options.infile[:idx0], 'Outputs', options.infile[idx1+1:idx2])
 
     # create a subfolder for output
     func_name = __name__[__name__.rfind('.')+1:]
-    outdir = os.path.join(options.outdir, '{}_[{}]'.format(func_name, options.component.upper()))
-    # outdir = os.path.join(options.outdir, '{}_[{}_{}_lagx={}_lagy={}_timerange=({},{})]'.format(func_name, options.subcommand.upper(), options.component.upper(), options.lagx, options.lagy, options.timerange[0], options.timerange[1]))
+    outdir = os.path.join(options.outdir, func_name, 'component[{}]_wsize[{}]_const[{}]_dlrange[{}]_luwsize[{}]_alocs[{}]'.format(options.component.upper(), options.wsize, options.const, options.dlrange, options.luwsize, options.alocs))
     try:
         os.makedirs(outdir)
     except OSError:

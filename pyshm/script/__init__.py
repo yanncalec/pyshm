@@ -1,14 +1,17 @@
 from functools import wraps
 import json, numpy, pickle, pandas
 import colorama
+import numpy as np
 
+# Some console text formation styles
 warningstyle = lambda x: colorama.Style.BRIGHT + colorama.Fore.RED + x + colorama.Style.RESET_ALL
 brightstyle = lambda x: colorama.Style.BRIGHT + x + colorama.Style.RESET_ALL
 examplestyle = lambda x: "\n  " + brightstyle(x[0]) + "\n\t" + x[1]
 
 
 class MyEncoder(json.JSONEncoder):
-    """ Convert numpy types to json.
+    """Utility class for convert from numpy types to json.
+
     """
     def default(self, obj):
         if isinstance(obj, numpy.integer):
@@ -23,9 +26,48 @@ class MyEncoder(json.JSONEncoder):
             return super(MyEncoder, self).default(obj)
 
 
+def to_json(X, verbose=False):
+    """Filter and convert a dictionary to json format.
+
+    A key-value pair in the dictionary will be convert to json if the value is one of the following types:
+        - pandas DataFrame or Series
+        - a numpy array
+        - a dictionary of numpy array
+        - None type
+    otherwise it will be filtered out.
+
+    Args:
+        X (dict): input dictionary
+    Returns:
+        a dictionary composed of the converted key-value pairs.
+    """
+    Res = {}
+    for k, v in X.items():
+        if isinstance(v, pandas.DataFrame) or isinstance(v, pandas.Series):
+            Res[k] = v.to_json(date_unit='s', date_format='iso')
+        else:
+            try:
+                # if the value can be converted to json or if it is None, keep
+                # as it is json will not dump dictionary unless all keys are
+                # string.
+                if isinstance(v, dict):
+                    u = {str(k):v for k,v in v.items()}
+                    json.dumps(u, cls=MyEncoder)
+                    Res[k] = u
+                elif isinstance(v, np.ndarray) or v is None:
+                    Res[k] = v
+                else:
+                    # This should not happen:
+                    raise TypeError('The values of the input dictionary must be dictionary or None.')
+            except Exception as msg:
+                if verbose:
+                    print(warningstyle("Warning: {}".format(msg)))
+                pass
+    return Res
+
+
 def load_result_of_analysis(fname):
-    """Utility function for loading pickle or json file saved by Thermal_static_data
-    or Deconv_static_data scripts.
+    """Utility function for loading pickle or json file saved by the scripts of data analysis.
 
     Args:
         fname (str): input file name
@@ -73,101 +115,47 @@ def per_sensor_result(X, Locations, aflag=True):
     return Res
 
 
-def to_json(X, verbose=False):
-    """Convert the values of pandas instances in a dictionary to json format.
-
-    Args:
-        X (dict): input dictionary
-    """
-    Res = {}
-    for k, v in X.items():
-        if isinstance(v, pandas.DataFrame) or isinstance(v, pandas.Series):
-            Res[k] = v.to_json(date_unit='s', date_format='iso')
-        else:
-            try:
-                # if the value can be converted to json or if it is None, keep
-                # as it is json will not dump dictionary unless all keys are
-                # string.
-                if isinstance(v, dict):
-                    u = {str(k):v for k,v in v.items()}
-                    json.dumps(u, cls=MyEncoder)
-                    Res[k] = u
-                elif v is None:
-                    Res[k] = v
-                else:
-                    # This should not happen:
-                    raise TypeError('The values of the input dictionary must be dictionary or None.')
-            except Exception as msg:
-                if verbose:
-                    print(warningstyle("Warning: {}".format(msg)))
-                pass
-    return Res
-
-
-def prepare_data(infile, component='Trend', mwsize=24, kzord=1, mwmethod='mean', timerange=(None,None), verbose=True):
-    """Load data and separate components.
-    """
-    from pyshm import OSMOS
-    # import sys
-
-    # options_dict = {'component':'Seasonal', 'verbose':True, 'mwsize':24, 'kzord':1, 'mwmethod':'mean',
-    #             'timerange':None, 'info':False}
-    # dict_filter = lambda D,F:{k:(D[k] if k in D else v) for k,v in F.items()}
-    # options = type('Options', (object,), dict_filter(kwargs, options_dict))    # Load preprocessed static data
-
-    # Load preprocessed static data
-    Data0, Tall0, Eall0, Locations = OSMOS.load_static_data(infile)
-    # indicator of missing data, NaN: not defined, True: missing data
-    Midx0 = OSMOS.concat_mts(Data0, 'Missing')
-
-    # Selection of component
-    if component.upper() in ['SEASONAL', 'TREND']:
-        if verbose:
-            print('Decomposition of signals...')
-            print('\tMoving window estimator: {}\n\tMoving window size: {}\n\tOrder of the KZ filter: {}'.format(mwmethod, mwsize, kzord))
-
-        # Decomposition of signals
-        Ttrd0, Tsnl0 = OSMOS.trend_seasonal_decomp(Tall0, mwsize=mwsize, kzord=kzord, method=mwmethod)
-        Etrd0, Esnl0 = OSMOS.trend_seasonal_decomp(Eall0, mwsize=mwsize, kzord=kzord, method=mwmethod)
-
-        if component.upper() == 'SEASONAL':
-            Xcpn0, Ycpn0 = Tsnl0, Esnl0
-        else:
-            Xcpn0, Ycpn0 = Ttrd0, Etrd0
-    elif component.upper() == 'ALL':
-            Xcpn0, Ycpn0 = Tall0, Eall0
-    else:
-        raise TypeError('Unknown type of component:', component)
-
-    # Data truncation
-    # tidx0 and tidx1 are respectively the beginning and ending timestamps
-    tidx0, tidx1 = timerange
-    Xcpn = Xcpn0[tidx0:tidx1]
-    Ycpn = Ycpn0[tidx0:tidx1]
-    # indicator of missing value, the nan values due forced alignment of OSMOS.concat_mts are casted to True
-    Midx = Midx0[tidx0:tidx1].astype(bool)
-
-    return Xcpn, Ycpn, Midx
-
-
 def static_data_analysis_template(func):
     """Template for static data analysis algorithms.
 
-    This functional prepares data for the core algorithm and saves the result in a dictionary. The core algorithm is passed by 'func' which is callable via the interface
+    This functional prepares data for the core algorithm and saves the
+    results in a dictionary. The core algorithm is passed by 'func' which
+    must be callable via the interface
+
         resdic = func(options, Xcpn, Ycpn, *args, **kwargs)
+
     the returned dictionary will be auguemented by some extra informations.
+
     """
+    from pyshm import OSMOS
+    # import os
+    # import pickle
+    # import sys
+    import json
+    # import numpy as np
+    # import pandas as pd
+    # import colorama
 
     @wraps(func)
     def newfunc(infile, outfile0, options, *args, **kwargs):
-        import os, sys
-        import pickle
-        import json
-        # import numpy as np
-        import pandas as pd
-        # import colorama
 
-        Xcpn, Ycpn, Midx = prepare_data(infile, component=options.component,  mwsize=options.mwsize, kzord=options.kzord, mwmethod=options.mwmethod, timerange=(options.time0, options.time1), verbose=options.verbose)
+        if options.component.upper() in ['SEASONAL', 'TREND']:
+            if options.verbose:
+                print('Decomposition of signals...')
+                print('\tMoving window estimator: {}\n\tMoving window size: {}\n\tOrder of the KZ filter: {}'.format(options.mwmethod, options.mwsize, options.kzord))
+
+
+            (Xall,Xsnl,Xtrd), (Yall,Ysnl,Ytrd), Midx = OSMOS.prepare_static_data(infile,
+                                                                                 mwsize=options.mwsize, kzord=options.kzord, method=options.mwmethod,
+                                                                                 timerange=(options.time0, options.time1))
+            if options.component.upper() == 'SEASONAL':
+                Xcpn, Ycpn = Xsnl, Ysnl
+            else:
+                Xcpn, Ycpn = Xtrd, Ytrd
+        elif options.component.upper() == 'ALL':
+            Xcpn, Ycpn, Midx = OSMOS.truncate_static_data(infile, (options.time0, options.time1))
+        else:
+            raise TypeError("{}: Wrong type of component.".format(options.component))
 
         # Call the core function and save results in a dictionary
         resdic = func(Xcpn, Ycpn, options, *args, **kwargs)  # side effect on options
@@ -201,4 +189,5 @@ from . import Deconv_static_data
 # from .Preprocess_static_data import Preprocess_static_data
 # from .Deconv_static_data import Deconv_static_data
 # , Deconv_static_data, Deconv_static_data_plot
+
 

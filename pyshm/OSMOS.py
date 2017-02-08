@@ -387,22 +387,24 @@ def load_raw_data(fname):
 def load_static_data(fname):
     """Load preprocessed static data from a given file.
 
-    Static data are in pandas format and containing only three fields:
-    Temperature, Elongation, Type. It is hence impossible to distinguish raw and
-    preprocessed data only from their format. As a solution we can use the field
-    'LIRIS' of the raw data file (cf. assemble_to_pandas()) as indicator.
+    This function loads a pickle file that contains preprocessed static data in pandas format and
+    extract the regulaly resampled values. 
 
     Args:
-        fname (string): name of the pickle file that contains preprocessed static data in pandas format
+        fname (string): name of the pickle file
     Returns:
         Data (dict): static data of all sensors
         Xall (pandas DataFrame): concatenated temperature of all sensors
         Yall (pandas DataFrame): concatenated elongation of all sensors
-        Locations (list): location keyid of sensors
+        Locations (list): location key IDs of sensors
 
-    Remark:
-        The concatenated data Xall, Yall may be longer than Data.
-
+    Remark: 
+        1. Preprocessed static data contain only three fields: [Temperature,
+        Elongation, Type], which are identical to the raw data. In order to
+        distinguish a pickle from of preprocessed data from that of raw data we
+        can use the key 'LIRIS' which is present only in the raw data file (cf. assemble_to_pandas())
+        as indicator.  
+        2. The outputs Xall, Yall may be longer than Data due to forced alignment.
     """
 
     with open(fname, 'rb') as fp:
@@ -416,7 +418,6 @@ def load_static_data(fname):
     if len(toto.keys()) > 1:
         # Unlike the raw data file, the preprocessed data file contains only one field.
         raise TypeError('{}: Not a valid file of preprocessed data.'.format(fname))
-
 
     Locations = list(Data0.keys())
     Locations.sort()
@@ -437,10 +438,9 @@ def load_static_data(fname):
         X[Nblx] = np.nan
         X['Missing'] = Nblx
         X['Jump'] = Jblx
-        
+
         Data[loc] = X[Rblx][['Temperature', 'Elongation', 'Missing', 'Jump']]
 
-#     return Data
     Xall = concat_mts(Data, 'Temperature')[:]  # temperature of all sensors
     Yall = concat_mts(Data, 'Elongation')[:]  # elongation of all sensors
 
@@ -467,14 +467,15 @@ def concat_mts(Data, field):
 
 
 def trend_seasonal_decomp(X0, mwsize=24, method='mean', kzord=1, causal=False, luwsize=1):
-    """Decompose a time series into trend and seasonal components
+    """Decompose a time series into trend and seasonal components.
 
     Args:
-        X0: pandas DataFrame
+        X0: pandas DataFrame or 1d numpy array
         mwsize...causal: see Tools.KZ_filter()
         luwsize (int): size of LU filter window
+    Returns:
+        Xtrd, Xsnl: trend and seasonal components 
     """
-    import pandas as pd
     # if not (isinstance(X0, pd.DataFrame)):
     #     raise TypeError('Input array must be a pandas DataFrame')
     if not (isinstance(X0, pd.DataFrame) or isinstance(X0, pd.Series)):
@@ -536,6 +537,70 @@ def common_time_range(X0):
         #     raise ValueError('Wrong time range')
 
     return t0, t1
+
+
+def truncate_static_data(fname, timerange):
+    """Load and truncate static data with a given time range.
+
+    Args:
+        fname (str): name of the pickle file containing preprocessed static data
+        timerange (tuple of str): starting and ending timestamp of the data
+    Returns:
+        Tall, Eall, Midx: truncated temperature, elongation and indicator of missing values 
+    """
+    # Load preprocessed static data
+    Data0, Tall0, Eall0, Locations = load_static_data(fname)
+    # indicator of missing data, NaN: not defined, True: missing data
+    Midx0 = concat_mts(Data0, 'Missing')
+
+    tidx0, tidx1 = timerange     # beginning and ending timestamps
+    
+    Tall = Tall0[tidx0:tidx1]
+    Eall = Eall0[tidx0:tidx1]
+    # indicator of missing values, the nan values due forced alignment of concat_mts() are casted as True
+    Midx = Midx0[tidx0:tidx1].astype(bool)
+
+    return Tall, Eall, Midx
+
+
+def prepare_static_data(fname, timerange=(None,None), mwsize=24, kzord=1, method='mean'):
+    """Prepare static data for further analysis.
+
+    This function does the same thing as truncate_static_data(), moreover, it
+    make decomposition of data into trend and seasonal components.
+    
+    Args:
+        fname (str): name of the pickle file containing preprocessed static data
+        mwsize...method: see trend_seasonal_decomp() 
+        timerange (tuple of str): starting and ending timestamp of the data
+    Returns:
+        (Tall, Tsnl, Ttrd): truncated temperature, its seasonal and trend components
+        (Eall, Esnl, Etrd): truncated elongation, its seasonal and trend components
+        Midx (pandas DataFrame): indicator of missing values
+
+    """
+    # Load preprocessed static data
+    Data0, Tall0, Eall0, Locations = load_static_data(fname)
+    # indicator of missing data, NaN: not defined, True: missing data
+    Midx0 = concat_mts(Data0, 'Missing')
+
+    # Decomposition of signals
+    Ttrd0, Tsnl0 = trend_seasonal_decomp(Tall0, mwsize=mwsize, kzord=kzord, method=method)
+    Etrd0, Esnl0 = trend_seasonal_decomp(Eall0, mwsize=mwsize, kzord=kzord, method=method)
+
+    tidx0, tidx1 = timerange     # beginning and ending timestamps
+    
+    # Data truncation
+    Ttrd = Ttrd0[tidx0:tidx1]
+    Tsnl = Tsnl0[tidx0:tidx1]
+    Etrd = Etrd0[tidx0:tidx1]
+    Esnl = Esnl0[tidx0:tidx1]
+    Tall = Tall0[tidx0:tidx1]
+    Eall = Eall0[tidx0:tidx1]
+    # indicator of missing values, the nan values due forced alignment of concat_mts() are casted as True
+    Midx = Midx0[tidx0:tidx1].astype(bool)
+
+    return (Tall, Tsnl, Ttrd), (Eall, Esnl, Etrd), Midx
 
 
 #### obsolete
