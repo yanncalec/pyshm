@@ -61,7 +61,7 @@ def to_json(X, verbose=False):
                     raise TypeError('The values of the input dictionary must be dictionary or None.')
             except Exception as msg:
                 if verbose:
-                    print(warningstyle("Warning: {}".format(msg)))
+                    print(warningstyle("Warning:\n{}".format(msg)))
                 pass
     return Res
 

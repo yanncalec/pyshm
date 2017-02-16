@@ -157,7 +157,7 @@ __all__ = ['Download_data', 'Options']
 
 __script__ = __doc__
 
-__warning__ = "Warning:" + warningstyle("\n  It is advised AGAINST manual modifications of the local database directory (e.g., insert, delete or rename files or folders in the database), since this may lead to its dysfunction.")
+__warning__ = "Warning:" + warningstyle("\n It is advised AGAINST manual modifications of the local database (e.g., insert, delete or rename files or folders in the database directory), since this may lead to its dysfunction.")
 
 examples = []
 examples.append(["%(prog)s --info DBDIR", "Save the list of available projects into a file named info.xlsx in the local database directory DBDIR and exit."])
@@ -173,9 +173,9 @@ def main():
                                      formatter_class=argparse.RawDescriptionHelpFormatter,
                                      epilog=__warning__ + "\n\n" + __example__)
 
-    parser.add_argument('dbdir', help='directory of the OSMOS database')
-    parser.add_argument('-p', '--PID', dest='PID', type=int, default=None, help='Project Key ID. If not given all projects presented on the remote server will be processed.', metavar='integer')
-    parser.add_argument('-e', '--end', dest='endtime', type=str, default=None, help='Fetch data til this time. If not given fetch data til today.', metavar='string')
+    parser.add_argument('dbdir', help='directory of the local OSMOS database')
+    parser.add_argument('-p', '--PID', dest='PID', type=int, default=None, help='Project Key ID. By default all projects presented on the remote server will be processed.', metavar='integer')
+    parser.add_argument('-e', '--end', dest='endtime', type=str, default=None, help='Fetch data til this time. By default all data til today will be fetched.', metavar='string')
     # parser.add_option('-a', '--assemble', dest='assemble', action='store_true', default=False, help='Assemble all pkl files of different Liris of the same PID into a single pkl file named \'Raw_latest.pkl\'.')
     parser.add_argument('-f', '--force', dest='force', action='store_true', default=False, help='Force to assembling data of all sensors into a single file (even no new data are fetched).')
     parser.add_argument('-d', '--delete', dest='delete', action='store_true', default=False, help='Delete failed projects from database.')

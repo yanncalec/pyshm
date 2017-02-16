@@ -297,7 +297,7 @@ class MxDeconv:
             return _fit_result
 
     @staticmethod
-    def _predict(Xs, Ls, Cvec=None):
+    def _predict(Xs, Ls, Cvec=None, notail=0):
         """Prediction using the trained model.
 
         The prediction is computed as:
@@ -312,10 +312,19 @@ class MxDeconv:
             (Yt, Ys): Yt is the final result and Ys[n] is Ls[n]*Xs[n]
         """
         Ys = []
+        notail = int(notail)
         for n, X in enumerate(Xs[:len(Ls)]):
-            lag = Ls[n].shape[1]//X.shape[0]  # compute the kernel length
+            # compute the kernel length
+            dimr, dimc = Ls[n].shape
+            dimx = X.shape[0]
+            lag = dimc // dimx
+            # lag = Ls[n].shape[1]//X.shape[0]  
+            
             # convolution of the n-th group, recall that Ls[n] is the concatenation of kernel matrices
-            toto = np.dot(Ls[n], Tools.mts_cumview(X, lag))
+            toto = np.dot(Ls[n][:, :(dimc-dimx*notail)], Tools.mts_cumview(X, lag-notail))
+            # original version:
+            # toto = np.dot(Ls[n], Tools.mts_cumview(X, lag))
+            
             Ys.append(toto)
 
         if Cvec is None:

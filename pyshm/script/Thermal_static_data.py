@@ -153,7 +153,7 @@ def main():
                                      epilog=__warning__ + "\n\n" + __example__)
 
     parser.add_argument('projdir', help='directory of a project in the database including the preprocessed static data.')
-    parser.add_argument('outdir', type=str, default=None, help='directory where results (figures and data files) are saved.')
+    parser.add_argument('outdir', type=str, default=None, help='directory where results are saved.')
 
     sensor_opts = parser.add_argument_group('Sensor options')
     sensor_opts.add_argument("--alocs", dest="alocs", type=lambda s: [int(x) for x in s.split(',')], default=None, help="Location key IDs of sensors to be analyzed (default=all sensors).", metavar="integers separated by \',\'")

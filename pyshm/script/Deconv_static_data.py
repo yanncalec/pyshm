@@ -125,10 +125,10 @@ def _Deconv_static_data(Xcpn, Ycpn, options):
         Yvar = np.asarray(Ycpn[ylocs]).T if len(ylocs)>0 else None
         # print(Xvar.shape, len(ylocs))
 
-        # # Apply delay to avoid over-fitting
-        # Xvar = np.roll(Xvar, options.dtx, axis=1); Xvar[:,:options.dtx] = np.nan
-        # if Yvar is not None:
-        #     Yvar = np.roll(Yvar, options.dty, axis=1); Yvar[:,:options.dty] = np.nan
+        # Apply delay to avoid over-fitting
+        Xvar = np.roll(Xvar, options.dtx, axis=1); Xvar[:,:options.dtx] = np.nan
+        if Yvar is not None:
+            Yvar = np.roll(Yvar, options.dty, axis=1); Yvar[:,:options.dty] = np.nan
 
         # Construction of the deconvolution model
         # print(xlocs, ylocs)
@@ -250,10 +250,10 @@ def main():
 
         model_opts = parser.add_argument_group("Model options")
         model_opts.add_argument("--const", dest="const", action="store_true", default=False, help="Add constant trend in the convolution model (default: no constant trend).")
-        model_opts.add_argument("--lagx", dest="lagx", type=int, default=6, help="Length of the convolution kernel of temperature (default=12). It will be desactivated if set to 0.", metavar="integer")
-        model_opts.add_argument("--lagy", dest="lagy", type=int, default=6, help="Length of the convolution kernel of elongation (default=6). It will be desactivated if set to 0.", metavar="integer")
-        # model_opts.add_argument("--dtx", dest="dtx", type=int, default=0, help="Artificial delay (in hours) applied on the temperature data to avoid over-fitting (default=0).", metavar="integer")
-        # model_opts.add_argument("--dty", dest="dty", type=int, default=0, help="Artificial delay (in hours) applied on the elongation data to avoid over-fitting (default=0).", metavar="integer")
+        model_opts.add_argument("--lagx", dest="lagx", type=int, default=6, help="Length of the convolution kernel of temperature (default=6). It will be desactivated if set to 0.", metavar="integer")
+        model_opts.add_argument("--lagy", dest="lagy", type=int, default=3, help="Length of the convolution kernel of elongation (default=3). It will be desactivated if set to 0.", metavar="integer")
+        model_opts.add_argument("--dtx", dest="dtx", type=int, default=0, help="Artificial delay (in hours) applied on the temperature data to avoid over-fitting (default=0).", metavar="integer")
+        model_opts.add_argument("--dty", dest="dty", type=int, default=0, help="Artificial delay (in hours) applied on the elongation data to avoid over-fitting (default=0).", metavar="integer")
 
     # for parser in [parser_static, parser_dynamic, parser_analysis]:
     #     parser.add_argument("-v", "--verbose", dest="verbose", action="count", default=0, help="Print messages.")

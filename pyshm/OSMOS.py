@@ -466,7 +466,7 @@ def concat_mts(Data, field):
     return pandas.concat(toto, axis=1, keys=Locations)
 
 
-def trend_seasonal_decomp(X0, mwsize=24, method='mean', kzord=1, causal=False, luwsize=1):
+def trend_seasonal_decomp(X0, mwsize=24, method='mean', kzord=1, causal=False, luwsize=0):
     """Decompose a time series into trend and seasonal components.
 
     Args:
@@ -579,6 +579,9 @@ def prepare_static_data(fname, timerange=(None,None), mwsize=24, kzord=1, method
         Midx (pandas DataFrame): indicator of missing values
 
     """
+    # beginning and ending timestamps
+    tidx0, tidx1 = timerange
+    
     # Load preprocessed static data
     Data0, Tall0, Eall0, Locations = load_static_data(fname)
     # indicator of missing data, NaN: not defined, True: missing data
@@ -588,8 +591,6 @@ def prepare_static_data(fname, timerange=(None,None), mwsize=24, kzord=1, method
     Ttrd0, Tsnl0 = trend_seasonal_decomp(Tall0, mwsize=mwsize, kzord=kzord, method=method)
     Etrd0, Esnl0 = trend_seasonal_decomp(Eall0, mwsize=mwsize, kzord=kzord, method=method)
 
-    tidx0, tidx1 = timerange     # beginning and ending timestamps
-    
     # Data truncation
     Ttrd = Ttrd0[tidx0:tidx1]
     Tsnl = Tsnl0[tidx0:tidx1]

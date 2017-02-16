@@ -3,7 +3,9 @@
 """Apply preprocessing and assemble processed data.
 """
 
-import os, argparse
+import os
+import argparse
+import json
 from pyshm.script import examplestyle, warningstyle
 
 class Options:
@@ -53,14 +55,22 @@ def Preprocess_static_data(projdir, options):
                 print(colorama.Style.RESET_ALL)
                 # raise Exception
 
-    fname = os.path.join(projdir,'Preprocessed_static.pkl')
-    # with open(fname, 'wb') as fp:
-    #     pickle.dump({'Data': Sdata}, fp, protocol=pickle.HIGHEST_PROTOCOL)
+    fname0 = os.path.join(projdir,'Preprocessed_static')
+
+    fname = fname0 + ".pkl"
     with open(fname, 'wb') as fp:
         pickle.dump({'Data': Sdata}, fp)
-
     if options.verbose:
         print('Results saved in {}'.format(fname))
+
+    if options.json:
+        from pyshm.script import to_json, MyEncoder
+        resjson = to_json(Sdata, verbose=options.verbose)
+        fname = fname0+".json"
+        with open(fname, 'w') as fp:
+            json.dump(resjson, fp, cls=MyEncoder)
+        if options.verbose:
+            print('Results saved in {}'.format(fname))
 
     # if os.path.isfile(os.path.join(projdir,'info.txt')):
     # Data0, *_ = OSMOS.load_static_data(fname)
@@ -82,7 +92,8 @@ __script__ = __doc__
 __warning__ = "Warning:" + warningstyle("\n  Run this script everytime after a sucessful updating of the local database with the script osmos_download. In most cases the optional preprocessings listed above are not necessary and it is recommended to run this script with default parameters.")
 
 examples = []
-examples.append(["%(prog)s -v DBDIR/153", "Apply preprocessing with default parameters on the project of PID 153 (the project lied in the database directory DBDIR), plot the static data in a subfolder named figures/Static and print messages."])
+examples.append(["%(prog)s -v DBDIR/153", "Apply preprocessing with default parameters on the project of PID 153 in the database directory DBDIR, save the results in DBDIR/153/Preprocessed_static.pkl and print messages."])
+examples.append(["%(prog)s -v --json DBDIR/153", "Save results in a json file in addition to the pickle file."])
 examples.append(["%(prog)s --sflag -v DBDIR/036", "Apply preprocessing by removing syncrhonisation error on the project of PID 36."])
 __example__ = "Some examples of use (change the path seperator '/' to '\\' on Windows platform):" + "".join([examplestyle(x) for x in examples])
 
@@ -101,6 +112,7 @@ def main():
     parser.add_argument('-j', '--jflag', dest='jflag', action='store_true', default=False, help='Detect jumps in the deformation data.')
     parser.add_argument('-n', dest='nh', action='store', type=int, default=12, help='Gaps (in hour) larger than this value will be marked as nan (default 12).')
     parser.add_argument('-v', '--verbose', dest='verbose', action='count', default=False, help='Print messages.')
+    parser.add_argument("--json", dest="json", action="store_true", default=False, help="Save results in json format.")
 
     options = parser.parse_args()
 

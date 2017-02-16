@@ -1078,4 +1078,5 @@ def safe_slice(X0, tidx, wsize, mode="soft", causal=False):
 
 
 safe_norm = nan_safe(la.norm, endo=False)
+safe_mean = nan_safe(np.mean, endo=False)
 

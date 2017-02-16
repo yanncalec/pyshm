@@ -32,15 +32,18 @@ def detect_instability_period(yerr, mwsize, sclrng, thresh, gap):
     hexp, *_ = Stat.Hurst(yerr, mwsize, sclrng=sclrng, wvlname="haar")  # Hurst exponent
     hexp1 = hexp.copy(); hexp1[np.isnan(hexp)] = -np.inf  # nan -> -inf to avoid warning of comparison
     # indicator of instability
+    hidc = hexp1 > thresh
+    # hidc = Tools.L_filter(hexp1 > thresh, wsize=gap)  # non linear filter, slower
     # hidc = sp.signal.convolve(hexp1>ithresh, np.ones(gap, dtype=bool), mode="same")>0
-    hidc = Tools.L_filter(hexp1 > thresh, wsize=gap)  # non linear filter, slower
     hblk = Tools.find_block_true(hidc)  # starting-ending indexes of blocks of instability
     
     return hexp, hblk
     
 
 def compute_local_statistics(Yerr, mad, mwsize):
-    """Compute the local statistics: mean and standard deviation and normalized observation.
+    """Compute the local statistics: mean and standard deviation and normalized
+    observation.
+
     """
     Merr0 = {}; Serr0 = {}; Nerr0 = {};
     
@@ -164,33 +167,38 @@ def preprocess_plot(figdir, Sdata, marknan=True, markjump=True, html=False):
 
     # plot all data of each sensor in separated files
     for loc, val in Sdata.items():
-        fig, axes = plt.subplots(2,1,figsize=(20,10), sharex=True)
         Xt, Yt = val['Temperature'], val['Elongation']
-        axes[0].plot(Xt,'r')#, label='{}'.format(loc))
-        axes[1].plot(Yt,'b')
+        fig, axes = plt.subplots(1,1,figsize=(20,5))
+        axa = axes
+        axa.plot(Yt,'b', alpha=0.8)
+        axa.legend(loc='upper left', fancybox=True, framealpha=0.5)        
+        axb = axa.twinx()
+        axb.patch.set_alpha(0.0)
+        axb.plot(Xt,'r', label="Temperature", alpha=0.8)#, label='{}'.format(loc))
+        axb.legend(loc='upper right', fancybox=True, framealpha=0.5)
 
-        ylim0 = axes[0].get_ylim()
-        ylim1 = axes[1].get_ylim()
+        ylim0 = axa.get_ylim()
+        # ylim1 = axes[1].get_ylim()
 
         # mark missing data
         blk = Tools.find_block_true(val['Missing'])
         for (t0,t1) in blk:
-            axes[0].fill_betweenx(ylim0, Xt.index[t0], Xt.index[t1-1], color='r', alpha=0.1)
-            axes[1].fill_betweenx(ylim1, Xt.index[t0], Xt.index[t1-1], color='b', alpha=0.1)
+            axa.fill_betweenx(ylim0, Xt.index[t0], Xt.index[t1-1], color='r', alpha=0.1)
+            # axes[1].fill_betweenx(ylim1, Xt.index[t0], Xt.index[t1-1], color='b', alpha=0.1)
         # mark jump
         for jidx, jval in enumerate(list(val['Jump'])):
             if jval:
-                axes[1].vlines(Xt.index[jidx], ylim1[0], ylim1[1], color='c', linewidth=2, alpha=0.2)
+                axa.vlines(Xt.index[jidx], ylim1[0], ylim1[1], color='c', linewidth=2, alpha=0.2)
         # blk = Tools.find_block_true(val['Jump'])
         # for (t0,t1) in blk:
         #     axes[1].fill_betweenx(ylim1, Xt.index[t0], Xt.index[t1-1], color='c', linewidth=2, alpha=0.1)
 
         # reset the ylim to prevent strange bugs
-        axes[0].set_ylim(ylim0)
-        axes[1].set_ylim(ylim1)
+        axa.set_ylim(ylim0)
+        # axes[1].set_ylim(ylim1)
 
-        axes[0].set_ylabel('Temperature')
-        axes[1].set_ylabel('Elongation')
+        axb.set_ylabel('Temperature')
+        axa.set_ylabel('Elongation')
         plt.tight_layout()
 
         if html:
@@ -321,7 +329,8 @@ def deconv_plot_one_sensor(component, xobs0, yobs0, yprd0, aprd0, bprd0,
     # merr[midx] = np.nan
     # serr[midx] = np.nan
 
-    nfig = 4 if component.upper() in ['TREND', 'SEASONAL'] else 5
+    nfig = 2 if component.upper() in ['TREND', 'SEASONAL'] else 3
+    nfig += int(bprd is not None) +1
     k = 0
     fig, axes = plt.subplots(nfig, 1, figsize=(20, nfig*5), sharex=True)
 
@@ -339,34 +348,32 @@ def deconv_plot_one_sensor(component, xobs0, yobs0, yprd0, aprd0, bprd0,
     if trnperiod is not None:
         t0, t1 = Tidx[trnperiod[0]], Tidx[trnperiod[1]-1]
         ylim = axb.get_ylim()
-        axb.fill_betweenx(ylim, t0, t1, color='c', alpha=0.2)
+        axb.fill_betweenx(ylim, t0, t1, color='c', alpha=0.1)
         # axa.axvspan(t0, t1, color='c', alpha=0.2)
     axa.set_title('Observations and prediction of elongation')
     k+=1
 
     # Prediction, Thermal and non-thermal contribution
-    axa = axes[k]
-    axa.plot(Tidx, yprd, **yprd_style)
-    axa.plot(Tidx, aprd, **aprd_style)
-    if bprd is None:
-        axa.set_title('Prediction and thermal contribution')
-    else:
+    if bprd is not None:
+        axa = axes[k]
+        axa.plot(Tidx, yprd, **yprd_style)
+        axa.plot(Tidx, aprd, **aprd_style)
         axa.plot(Tidx, bprd, **bprd_style)
         axa.set_title('Prediction, thermal and non-thermal contributions')
-    axa.legend(loc='upper left', fancybox=True, framealpha=0.5)
-    k+=1
+        axa.legend(loc='upper left', fancybox=True, framealpha=0.5)
+        k+=1
 
-    # Local statistics of residual
-    axa = axes[k]
-    axa.plot(Tidx, yerr, **yerr_style)
-    axa.plot(Tidx, merr, **merr_style)
-    axa.legend(loc='upper left', fancybox=True, framealpha=0.5)
-    axb = axa.twinx()
-    axb.patch.set_alpha(0.0)
-    axb.plot(Tidx, serr, **serr_style)
-    axb.legend(loc='upper right', fancybox=True, framealpha=0.5)
-    axa.set_title('Local statistics')
-    k+=1
+    # # Local statistics of residual
+    # axa = axes[k]
+    # axa.plot(Tidx, yerr, **yerr_style)
+    # axa.plot(Tidx, merr, **merr_style)
+    # axa.legend(loc='upper left', fancybox=True, framealpha=0.5)
+    # axb = axa.twinx()
+    # axb.patch.set_alpha(0.0)
+    # axb.plot(Tidx, serr, **serr_style)
+    # axb.legend(loc='upper right', fancybox=True, framealpha=0.5)
+    # axa.set_title('Local statistics')
+    # k+=1
 
     # Component-dependent analysis
     if component.upper() in ['TREND', 'ALL']:
@@ -504,10 +511,10 @@ def main():
         #     lstat_opts.add_argument('--causal', dest='causal', action='store_true', default=False, help='Use causal window (default: non causal).')
 
         hurst_opts = parser.add_argument_group('Options for the Hurst exponent (trend component only)')  # Hurst exponent
-        hurst_opts.add_argument('--hthresh', dest='hthresh', type=float, default=0.6, help='Threshold value for instability detection (default=0.6).', metavar='float')
-        hurst_opts.add_argument('--hwsize', dest='hwsize', type=int, default=24*15, help='Size of the moving window for computation of Hurst exponent (default=360).', metavar='integer')
+        hurst_opts.add_argument('--hthresh', dest='hthresh', type=float, default=0.6, help='Threshold value between 0. and 1. for instability detection (default=0.6).', metavar='float')
+        hurst_opts.add_argument('--hrng', dest='hrng', nargs=2, type=int, default=(0,8), help='Wavelet scale range index for computation of Hurst exponent (default=(0,8).', metavar='integer')
+        hurst_opts.add_argument('--hwsize', dest='hwsize', type=int, default=24*10, help='Size of the moving window for computation of Hurst exponent (default=240).', metavar='integer')
         hurst_opts.add_argument('--hgap', dest='hgap', type=int, default=24, help='Minimal length of instability period (default=24).', metavar='integer')
-        hurst_opts.add_argument('--hrng', dest='hrng', nargs=2, type=int, default=(0,8), help='Wavelet scale range index for computation of Hurst exponent (default=(0,8)).', metavar='integer')
 
     options = mainparser.parse_args()
 
@@ -591,7 +598,7 @@ def main():
             if options.verbose:
                 print('Computing the Hurst exponent...')
             Hexp0 = {}; Hblk = {}
-            mYerr = Yerr.rolling(window=24, min_periods=1, center=True).median() #.bfill()
+            mYerr = Yerr.rolling(window=24, min_periods=1, center=True).mean() # .median() #.bfill()
             for loc, yerr0 in mYerr.items():
                 yerr = yerr0.copy(); yerr.loc[Res['Midx'][loc]] = np.nan
                 Hexp0[loc], Hblk[loc] = detect_instability_period(yerr, options.hwsize, options.hrng, options.hthresh, options.hgap)

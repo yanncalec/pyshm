@@ -185,7 +185,7 @@ def linear_regression(Y, X, nanmode="remove"):
         # non-biased estimation of noise's variance
         A_rank = la.matrix_rank(A)
         if A.shape[0] > A_rank:
-            sigma2 = la.norm(err)**2 / (A.shape[0] - A_rank)
+            sigma2 = Tools.safe_norm(err)**2 / (A.shape[0] - A_rank)
         else:
             sigma2 = np.nan
         # assert(sigma2 >= 0 or np.isnan(simga2))
