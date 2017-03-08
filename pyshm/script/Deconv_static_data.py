@@ -14,7 +14,7 @@ class Options:
     ylocs=None  # locations for y inputs
     mwmethod='mean'  # method for computation of trend component
     mwsize=24  # size of moving window for computation of trend component
-    kzord=1  # order of KZ filter
+    kzord=2  # order of KZ filter
     component='trend'  # name of the component for analysis, ['all', 'seasonal', 'trend']
     time0=None  # beginning of the data set, a string
     time1=None  # ending of the data set, a string
@@ -65,7 +65,7 @@ def _Deconv_static_data(Xcpn, Ycpn, options):
         Mxd: objects of deconvolution model
     """
 
-    from pyshm import Models
+    from pyshm import Models, Stat
     import numpy as np
     import pandas as pd
 
@@ -96,13 +96,15 @@ def _Deconv_static_data(Xcpn, Ycpn, options):
     if options.verbose > 1:
         print("Active sensors for temperature: {}\nActive sensors for elongation: {}\n".format(options.xlocs, options.ylocs))
 
+    staticflag = options.subcommand.upper() == "STATIC"
+
     # compute valid values for training period
-    if options.subcommand.upper() == "STATIC":
-        options.trnperiod, options.Ntrn = Models.MxDeconv._training_period(len(Xcpn), tidx0=options.sidx, Ntrn=options.Ntrn)
+    if staticflag:
+        options.trnperiod, options.Ntrn = Stat.training_period(len(Xcpn), tidx0=options.sidx, Ntrn=options.Ntrn)
 
     if options.verbose:
         print("Deconvolution of the \'{}\' component...".format(options.component.upper()))
-        if options.verbose > 1 and options.subcommand.upper() == "STATIC":
+        if options.verbose > 1 and staticflag:
             print("Training period: from {} to {}, around {} days.".format(Tidx[options.trnperiod[0]], Tidx[options.trnperiod[1]-1], int((options.trnperiod[1]-options.trnperiod[0])/24)))
 
     for aloc in options.alocs:
@@ -133,17 +135,17 @@ def _Deconv_static_data(Xcpn, Ycpn, options):
         # Construction of the deconvolution model
         # print(xlocs, ylocs)
         if len(xlocs)>0 and len(ylocs)>0:  # Full model
-            if options.subcommand.upper() == "STATIC":  # static model
+            if staticflag:  # static model
                 mxd = Models.DiffDeconv(Yobs, Xvar, options.lagx, Yvar, options.lagy)
             else:  # dynamic model
                 mxd = Models.DiffDeconvBM(Yobs, Xvar, options.lagx, Yvar, options.lagy)
         elif len(xlocs)>0:  # Half model, X input only
-            if options.subcommand.upper() == "STATIC":  # static model
+            if staticflag:  # static model
                 mxd = Models.DiffDeconv(Yobs, Xvar, options.lagx)
             else:  # dynamic model
                 mxd = Models.DiffDeconvBM(Yobs, Xvar, options.lagx)
         elif len(ylocs)>0:  # Half model, Y input only
-            if options.subcommand.upper() == "STATIC":  # static model
+            if staticflag:  # static model
                 mxd = Models.DiffDeconv(Yobs, Yvar, options.lagy)
             else:  # dynamic model
                 mxd = Models.DiffDeconvBM(Yobs, Yvar, options.lagy)
@@ -151,7 +153,7 @@ def _Deconv_static_data(Xcpn, Ycpn, options):
             raise ValueError("Incompatible set of parameters.")
 
         # Model fitting and prediction
-        if options.subcommand.upper() == "STATIC":
+        if staticflag:
             res_fit = mxd.fit(constflag=options.const, tidx0=options.sidx, Ntrn=options.Ntrn)
             res_predict = mxd.predict(Xvar, Yvar)
             kmat = mxd._As  # kernel matrices
@@ -162,16 +164,20 @@ def _Deconv_static_data(Xcpn, Ycpn, options):
         # The last [0] is for taking the first row (which is also the only row)
         Yprd0[aloc] = res_predict[0][0]
         Aprd0[aloc] = res_predict[1][0][0]
-        if len(res_predict[1]) > 1:
-            Bprd0[aloc] = res_predict[1][1][0]
-        Yerr0[aloc] = Yobs[0] - Yprd0[aloc]
+        Bprd0[aloc] = res_predict[1][1][0] if len(res_predict[1]) > 1 else None
+        # Yerr0[aloc] = Yobs[0] - Yprd0[aloc]
         Krnl[aloc] = kmat
         Mxd[aloc] = mxd
 
-    Yprd = pd.DataFrame(Yprd0, columns=options.alocs, index=Tidx)
-    # Yerr = pd.DataFrame(Yerr0, columns=options.alocs, index=Tidx)
-    Aprd = pd.DataFrame(Aprd0, columns=options.alocs, index=Tidx)
-    Bprd = pd.DataFrame(Bprd0, columns=options.alocs, index=Tidx) if len(Bprd0)>0 else None
+    Yprd = pd.DataFrame(Yprd0, index=Tidx)
+    # Yerr = pd.DataFrame(Yerr0, index=Tidx)
+    Aprd = pd.DataFrame(Aprd0, index=Tidx)
+    Bprd = pd.DataFrame(Bprd0, index=Tidx) # if len(Bprd0)>0 else None
+
+    # Yprd = pd.DataFrame(Yprd0, columns=options.alocs, index=Tidx)
+    # # Yerr = pd.DataFrame(Yerr0, columns=options.alocs, index=Tidx)
+    # Aprd = pd.DataFrame(Aprd0, columns=options.alocs, index=Tidx)
+    # Bprd = pd.DataFrame(Bprd0, columns=options.alocs, index=Tidx) # if len(Bprd0)>0 else None
 
     return {"Yprd":Yprd, "Aprd":Aprd, "Bprd":Bprd, "Krnl":Krnl, "Mxd":Mxd}
 
@@ -224,7 +230,6 @@ def main():
     #                                        formatter_class=argparse.RawDescriptionHelpFormatter,
     #                                        epilog=__analysis_example__)
 
-
     for parser in [parser_static, parser_dynamic]:
         parser.add_argument("projdir", help="directory of a project in the database including the preprocessed static data.")
         # parser.add_argument("infile", type=str, help="preprocessed data file containing all sensors of one project.")
@@ -232,7 +237,7 @@ def main():
         parser.add_argument("outdir", type=str, help="directory where results (figures and data files) will be saved.")
 
         parser.add_argument("-v", "--verbose", dest="verbose", action="count", default=0, help="Print messages.")
-        
+
         sensor_opts = parser.add_argument_group("Sensor options")
         sensor_opts.add_argument("--alocs", dest="alocs", type=lambda s: [int(x) for x in s.split(',')], default=None, help="Location key IDs of sensors to be analyzed (default=all sensors).", metavar="integers separated by \',\'")
         sensor_opts.add_argument("--xlocs", dest="xlocs", type=lambda s: [int(x) for x in s.split(',')], default=None, help="Location key IDs of active temperature sensors (default=all sensors). Setting xlocs to 0 will disable the use of temperature as external input.", metavar="integers separated by \',\'")
@@ -288,7 +293,7 @@ def main():
         # check the input data file
         options.infile = os.path.join(options.projdir, "Preprocessed_static.pkl")
         if not os.path.isfile(options.infile):
-            print("Preprocessed static data not found! Have you already run osmos_preprocess?")
+            print("Preprocessed static data not found.")
             raise FileNotFoundError(options.infile)
 
         if not os.path.isdir(options.outdir):
@@ -300,13 +305,8 @@ def main():
         #     outdir0 = os.path.join(options.infile[:idx0], "Outputs", options.infile[idx1+1:idx2])
 
         # create a subfolder for output
-        func_name = __name__[__name__.rfind('.')+1:]
-        outdir = os.path.join(options.outdir, func_name, "model[{}]_component[{}]_lagx[{}]_lagy[{}]_alocs[{}]_xlocs[{}]_ylocs[{}]".format(options.subcommand.upper(), options.component.upper(), options.lagx, options.lagy, options.alocs, options.xlocs, options.ylocs))
-        try:
-            os.makedirs(outdir)
-        except OSError:
-            pass
-
+        options.func_name = __name__[__name__.rfind('.')+1:]
+        outdir = os.path.join(options.outdir, options.func_name, "model[{}]_component[{}]_lagx[{}]_lagy[{}]_alocs[{}]_xlocs[{}]_ylocs[{}]_const[{}]_Ntrn[{}]".format(options.subcommand.upper(), options.component.upper(), options.lagx, options.lagy, options.alocs, options.xlocs, options.ylocs, options.const, options.Ntrn))
         outfile = os.path.join(outdir, "Results")
 
         # No handle of exceptions so that any exception will result a system exit in the terminal.

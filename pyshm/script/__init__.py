@@ -2,6 +2,7 @@ from functools import wraps
 import json, numpy, pickle, pandas
 import colorama
 import numpy as np
+import os
 
 # Some console text formation styles
 warningstyle = lambda x: colorama.Style.BRIGHT + colorama.Fore.RED + x + colorama.Style.RESET_ALL
@@ -54,7 +55,7 @@ def to_json(X, verbose=False):
                     u = {str(k):v for k,v in v.items()}
                     json.dumps(u, cls=MyEncoder)
                     Res[k] = u
-                elif isinstance(v, np.ndarray) or v is None:
+                elif isinstance(v, np.ndarray) or isinstance(v, str) or isinstance(v, int) or v is None:
                     Res[k] = v
                 else:
                     # This should not happen:
@@ -135,6 +136,7 @@ def static_data_analysis_template(func):
     # import numpy as np
     # import pandas as pd
     # import colorama
+    # import inspect
 
     @wraps(func)
     def newfunc(infile, outfile0, options, *args, **kwargs):
@@ -159,7 +161,7 @@ def static_data_analysis_template(func):
 
         # Call the core function and save results in a dictionary
         resdic = func(Xcpn, Ycpn, options, *args, **kwargs)  # side effect on options
-        resdic.update({'Xcpn':Xcpn, 'Ycpn':Ycpn, 'Midx':Midx, 'algo_options':vars(options)})
+        resdic.update({'func_name':options.func_name, 'Xcpn':Xcpn, 'Ycpn':Ycpn, 'Midx':Midx, 'algo_options':vars(options)})
 
         # # Save the results in pickle format
         # with open(outfile0+'.pkl', 'wb') as fp:
@@ -171,7 +173,13 @@ def static_data_analysis_template(func):
         # Save the results in json format:
         # some non-standard objects might be removed, and non-float values will be casted as float
         resjson = to_json(resdic, verbose=options.verbose)
-        # print(resjson.keys())
+        # make the output directory if necessary
+        idx = outfile0.rfind(os.path.sep)
+        outdir = outfile0[:idx]
+        try:
+            os.makedirs(outdir)
+        except OSError:
+            pass
         with open(outfile0+'.json', 'w') as fp:
             json.dump(resjson, fp, cls=MyEncoder)
         if options.verbose:
@@ -179,6 +187,7 @@ def static_data_analysis_template(func):
 
         return resdic, resjson
     return newfunc
+
 
 
 from . import Download_data
@@ -189,5 +198,3 @@ from . import Deconv_static_data
 # from .Preprocess_static_data import Preprocess_static_data
 # from .Deconv_static_data import Deconv_static_data
 # , Deconv_static_data, Deconv_static_data_plot
-
-

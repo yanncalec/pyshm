@@ -176,7 +176,7 @@ class MxDeconv:
     _As = None  # kernel matrices, _As[l][i] is A_l[i]
     _predict_result = None  # result of prediction
     _split_dim = None
-    
+
     def __init__(self, Y, X, lag, *args):
         """
         Args:
@@ -240,30 +240,7 @@ class MxDeconv:
         return tuple(toto)
 
     def training_period(self, tidx0=None, Ntrn=None):
-        return MxDeconv._training_period(self.Nt, tidx0, Ntrn)
-
-    @staticmethod
-    def _training_period(Nt, tidx0=None, Ntrn=None):
-        """Compute the valid training period from given parameters.
-
-        Args:
-            Nt (int): total length of the data
-            tidx0 (int): starting index of the training period.
-            Ntrn (int): length of the training period.
-        Returns:
-            (tidx0, tidx1): tuple of valid starting and ending index.
-            Ntrn: length of valid training period.
-        """
-        tidx0 = 0 if tidx0 is None else (tidx0 % Nt)
-        tidx1 = Nt if Ntrn is None else min(tidx0+Ntrn, Nt)
-        Ntrn = tidx1 - tidx0
-
-        # tidx1 = 0 if tidx0 is None else min(max(0, tidx0), self.Nt)
-        # Ntrn = self.Nt if Ntrn is None else min(max(0, Ntrn), self.Nt)
-        # tidx0 = 0 if tidx0 is None else min(max(0, tidx0), self.Nt)
-        # # tidx0 = np.max(self.lag)-1
-        # tidx1 = tidx0+Ntrn
-        return (tidx0, tidx1), Ntrn
+        return Stat.training_period(self.Nt, tidx0, Ntrn)
 
     @staticmethod
     def _fit(Yvar, Xvars, lags, constflag, tidx0, tidx1, method):
@@ -291,6 +268,7 @@ class MxDeconv:
                 _fit_result = Stat.multi_linear_regression_ls(Yvar[:,tidx0:tidx1], *Xs, constflag=constflag)
             elif method == 'corr':  # correlation
                 _fit_result = Stat.multi_linear_regression_corr(Yvar[:,tidx0:tidx1], *Xs, constflag=constflag)
+                # _fit_result = Stat.robust_multi_linear_regression(Yvar[:,tidx0:tidx1], *Xs, constflag=constflag)
             else:
                 raise ValueError('Unknown method: {}'.format(method))
 
@@ -318,13 +296,13 @@ class MxDeconv:
             dimr, dimc = Ls[n].shape
             dimx = X.shape[0]
             lag = dimc // dimx
-            # lag = Ls[n].shape[1]//X.shape[0]  
-            
+            # lag = Ls[n].shape[1]//X.shape[0]
+
             # convolution of the n-th group, recall that Ls[n] is the concatenation of kernel matrices
             toto = np.dot(Ls[n][:, :(dimc-dimx*notail)], Tools.mts_cumview(X, lag-notail))
             # original version:
             # toto = np.dot(Ls[n], Tools.mts_cumview(X, lag))
-            
+
             Ys.append(toto)
 
         if Cvec is None:
@@ -333,7 +311,7 @@ class MxDeconv:
             Yt = np.sum(np.asarray(Ys), axis=0) + Cvec
         return (Yt, Ys)
 
-    def fit(self, constflag=False, tidx0=None, Ntrn=None, method='ls'):
+    def fit(self, constflag=False, tidx0=None, Ntrn=None, method='corr'):
         """Model fitting (wrapper of the static method _fit()).
 
         Args:
@@ -662,7 +640,7 @@ class DiffDeconvBM(DiffDeconv):
     _dimsys = None  # dimension of the system state vector
     _Ks = None  # sequence of kernel matrices, which are the state vector in KF
     _Ka = None  # same as Ks, except that the kernel matrices of the same group are not splitted
-    
+
     def __init__(self, Y, X, lag, *args):
         super().__init__(Y, X, lag, *args)
 
@@ -683,7 +661,7 @@ class DiffDeconvBM(DiffDeconv):
         # construct the observation matrices: time-dependent
         self._dimsys = 0
         self._Bs = []
-        
+
         for X, lag in zip(self.Xvar, self.lag):
             Xc = Tools.mts_cumview(X, lag)
             B0 = np.zeros((Nt, self._dimobs, Xc.shape[0] * self._dimobs))
@@ -696,7 +674,7 @@ class DiffDeconvBM(DiffDeconv):
             self._Bs.append(B0)
 
         self._dimsys += self._dimobs if constflag else 0
-        
+
         B = np.zeros((Nt, self._dimobs, self._dimsys))
         for t in range(Nt):
             if constflag:
@@ -705,7 +683,7 @@ class DiffDeconvBM(DiffDeconv):
                 B[t,] = np.hstack([b[t] for b in self._Bs])
 
         self._constflag = constflag
-        
+
         # construct the transition matrix: time-independent
         A = np.eye(self._dimsys)
 
@@ -728,14 +706,14 @@ class DiffDeconvBM(DiffDeconv):
         if self._Kalman.init_state is None or self._Kalman.init_covariance is None or self._Kalman.transition_covariance is None or self._Kalman.observation_covariance is None:
             raise ValueError('Incorrect parameters: run fit() first.')
             return
-        
+
         if smooth:
             LXtn, LPtn, LJt, res = self._Kalman.smoother()
             Xflt = np.transpose(np.asarray(LXtn), (0,2,1))
         else:
             LXtt, LPtt, LXtm, LPtm, LEt, LSt, LKt, LmXt, *_ = self._Kalman.filter()
             Xflt = np.transpose(np.asarray(LXtt), (0,2,1))
-            
+
         # analysis of results
         Yflt = np.sum(self._Kalman.observation_matrices * Xflt, axis=-1).T  # filtered/smoothed observations, note self.Yvar is not the original observation but its derivative. Take transpose to make the second axis as time axis.
 
@@ -756,7 +734,7 @@ class DiffDeconvBM(DiffDeconv):
                 toto.append(np.split(S[n], lag, axis=-1))
             self._Ks.append(toto)
         Cvec = np.vstack(Cvec).T
-        
+
         self._predict_result = (Yflt, self.Yvar-Yflt, self._Ka, self._Ks)  # filtered observation (indeed the derivative), residual, kernel matrices, full result
 
         Yt = self.pinv_analysis(Yflt)
@@ -768,7 +746,7 @@ class DiffDeconvBM(DiffDeconv):
             toto = np.sum(self._Bs[n] * X[:,np.newaxis,:], axis=-1).T
             Ys.append(self.pinv_analysis(toto)) ##
             # Ys.append(self.projection_ImT(self.pinv_analysis(toto)))
-            
+
         self._predict_result_final = (Yt, Ys, Cvec, Yflt)
 
         return self._predict_result_final, self._Ks, self._Ka

@@ -288,13 +288,13 @@ def static_data_preprocessing(X0,
             Jidx = Tools.detect_step_jumps(X1['Elongation'], method='diff', thresh=8, mwsize=2, median=0.8)
         else:
             Jidx = []
-        
+
         # Add the Type column
         Type1 = pd.Series(data=np.zeros(len(X1), dtype=int), index=X1.index)
         if len(Rtsx)>0:
             Type1.loc[Rtsx]+=0b001  # loc since Rtsx are time-stamp indexes
         if len(Ntsx)>0:
-            Type1.loc[Ntsx]+=0b010  
+            Type1.loc[Ntsx]+=0b010
         if len(Jidx)>0:
             Type1.iloc[Jidx]+=0b100  # iloc since Jidx are integers
 
@@ -388,23 +388,23 @@ def load_static_data(fname):
     """Load preprocessed static data from a given file.
 
     This function loads a pickle file that contains preprocessed static data in pandas format and
-    extract the regulaly resampled values. 
+    extract the regulaly resampled values.
 
     Args:
         fname (string): name of the pickle file
     Returns:
         Data (dict): static data of all sensors
-        Xall (pandas DataFrame): concatenated temperature of all sensors
-        Yall (pandas DataFrame): concatenated elongation of all sensors
+        Tall (pandas DataFrame): concatenated temperature of all sensors
+        Eall (pandas DataFrame): concatenated elongation of all sensors
         Locations (list): location key IDs of sensors
 
-    Remark: 
+    Remark:
         1. Preprocessed static data contain only three fields: [Temperature,
         Elongation, Type], which are identical to the raw data. In order to
         distinguish a pickle from of preprocessed data from that of raw data we
         can use the key 'LIRIS' which is present only in the raw data file (cf. assemble_to_pandas())
-        as indicator.  
-        2. The outputs Xall, Yall may be longer than Data due to forced alignment.
+        as indicator.
+        2. The outputs Tall, Eall may be longer than Data due to forced alignment.
     """
 
     with open(fname, 'rb') as fp:
@@ -441,10 +441,10 @@ def load_static_data(fname):
 
         Data[loc] = X[Rblx][['Temperature', 'Elongation', 'Missing', 'Jump']]
 
-    Xall = concat_mts(Data, 'Temperature')[:]  # temperature of all sensors
-    Yall = concat_mts(Data, 'Elongation')[:]  # elongation of all sensors
+    Tall = concat_mts(Data, 'Temperature')[:]  # temperature of all sensors
+    Eall = concat_mts(Data, 'Elongation')[:]  # elongation of all sensors
 
-    return Data, Xall, Yall, Locations
+    return Data, Tall, Eall, Locations
 
 
 def concat_mts(Data, field):
@@ -474,7 +474,7 @@ def trend_seasonal_decomp(X0, mwsize=24, method='mean', kzord=1, causal=False, l
         mwsize...causal: see Tools.KZ_filter()
         luwsize (int): size of LU filter window
     Returns:
-        Xtrd, Xsnl: trend and seasonal components 
+        Xtrd, Xsnl: trend and seasonal components
     """
     # if not (isinstance(X0, pd.DataFrame)):
     #     raise TypeError('Input array must be a pandas DataFrame')
@@ -546,7 +546,7 @@ def truncate_static_data(fname, timerange):
         fname (str): name of the pickle file containing preprocessed static data
         timerange (tuple of str): starting and ending timestamp of the data
     Returns:
-        Tall, Eall, Midx: truncated temperature, elongation and indicator of missing values 
+        Tall, Eall, Midx: truncated temperature, elongation and indicator of missing values
     """
     # Load preprocessed static data
     Data0, Tall0, Eall0, Locations = load_static_data(fname)
@@ -554,7 +554,7 @@ def truncate_static_data(fname, timerange):
     Midx0 = concat_mts(Data0, 'Missing')
 
     tidx0, tidx1 = timerange     # beginning and ending timestamps
-    
+
     Tall = Tall0[tidx0:tidx1]
     Eall = Eall0[tidx0:tidx1]
     # indicator of missing values, the nan values due forced alignment of concat_mts() are casted as True
@@ -563,15 +563,15 @@ def truncate_static_data(fname, timerange):
     return Tall, Eall, Midx
 
 
-def prepare_static_data(fname, timerange=(None,None), mwsize=24, kzord=1, method='mean'):
+def prepare_static_data(fname, timerange=(None,None), mwsize=24, kzord=1, method='mean', causal=False):
     """Prepare static data for further analysis.
 
     This function does the same thing as truncate_static_data(), moreover, it
     make decomposition of data into trend and seasonal components.
-    
+
     Args:
         fname (str): name of the pickle file containing preprocessed static data
-        mwsize...method: see trend_seasonal_decomp() 
+        mwsize...method: see trend_seasonal_decomp()
         timerange (tuple of str): starting and ending timestamp of the data
     Returns:
         (Tall, Tsnl, Ttrd): truncated temperature, its seasonal and trend components
@@ -581,15 +581,15 @@ def prepare_static_data(fname, timerange=(None,None), mwsize=24, kzord=1, method
     """
     # beginning and ending timestamps
     tidx0, tidx1 = timerange
-    
+
     # Load preprocessed static data
     Data0, Tall0, Eall0, Locations = load_static_data(fname)
     # indicator of missing data, NaN: not defined, True: missing data
     Midx0 = concat_mts(Data0, 'Missing')
 
     # Decomposition of signals
-    Ttrd0, Tsnl0 = trend_seasonal_decomp(Tall0, mwsize=mwsize, kzord=kzord, method=method)
-    Etrd0, Esnl0 = trend_seasonal_decomp(Eall0, mwsize=mwsize, kzord=kzord, method=method)
+    Ttrd0, Tsnl0 = trend_seasonal_decomp(Tall0, mwsize=mwsize, kzord=kzord, method=method, causal=causal)
+    Etrd0, Esnl0 = trend_seasonal_decomp(Eall0, mwsize=mwsize, kzord=kzord, method=method, causal=causal)
 
     # Data truncation
     Ttrd = Ttrd0[tidx0:tidx1]
@@ -600,6 +600,11 @@ def prepare_static_data(fname, timerange=(None,None), mwsize=24, kzord=1, method
     Eall = Eall0[tidx0:tidx1]
     # indicator of missing values, the nan values due forced alignment of concat_mts() are casted as True
     Midx = Midx0[tidx0:tidx1].astype(bool)
+
+    # for loc, x in Tsnl.items():
+    #     if x.std()<0.1:
+    #         warnings.warn("Location {}: No significant seasonal component detected.".format(loc))
+    #         # raise ValueError("No significant seasonal component detected.")
 
     return (Tall, Tsnl, Ttrd), (Eall, Esnl, Etrd), Midx
 
