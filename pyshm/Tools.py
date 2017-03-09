@@ -16,7 +16,7 @@ import datetime
 import inspect
 from functools import wraps
 
-from . import Stat
+# from . import Stat
 
 #### Functional operators ####
 
