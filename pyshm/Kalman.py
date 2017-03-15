@@ -35,7 +35,8 @@ class Kalman:
         self.dimsys = B[0].shape[1] if B.ndim == 3 else B.shape[1]
         self.dimobs = B[0].shape[0] if B.ndim == 3 else B.shape[0]
 
-        assert(Y.shape[1] == self.dimobs)
+        assert Y.shape[0] == self.dimobs
+
         self.observation = np.asarray(Y, dtype=np.float64)  # Missing values: convert None to nan
         self.transition_matrices = A
         self.observation_matrices = B
@@ -64,7 +65,7 @@ class Kalman:
                 assert(Q.shape[1]==Q.shape[2]==self.dimsys)
                 self.transition_covariance = Q
             else:
-                raise TypeError('Q must be a 1d or 2d array')
+                raise TypeError("Q must be a 1d or 2d array")
         elif Q is None:
             self.transition_covariance = None
         else:
@@ -97,7 +98,7 @@ class Kalman:
         if isinstance(X0, numbers.Number):
             self.init_state = np.ones((self.dimsys, 1)) * X0
         elif isinstance(X0, np.ndarray):
-            assert(X0.shape[0] == self.dimsys)
+            assert(X0.ndim == 2 and X0.shape[0] == self.dimsys)
             self.init_state = X0
         elif X0 is None:
             self.init_state = None
@@ -109,7 +110,7 @@ class Kalman:
             self.init_covariance = np.eye(self.dimsys) * P0
         elif isinstance(P0, np.ndarray):
             assert(Tools.issymmetric(P0) and P0.shape[0]==self.dimsys)
-            assert(Tools.ispositivedefinite(P0))
+            # assert(Tools.ispositivedefinite(P0))
             self.init_covariance = P0
         elif P0 is None:
             self.init_covariance = None
@@ -152,7 +153,7 @@ def Kalman_filter(Y, A, B, G, Q, R, X0, P0):
         X_{t|t}=Exp[X_t | Y_{1:t}].
 
     Args:
-        Y (2d array): observation vectors, must be 2d array and the 1st dimension corresponds to time.
+        Y (2d array): observation vectors, must be 2d array and each row corresponds to an observation (ie, the 1st dimension corresponds to time).
         A (array): system state matrix, 2d or 3d. In case of 2d array the system transition matrix is time-independent, in case of 3d array it is time-dependent and the 1st dimension corresponds to time.
         B (array): observation matrix, 2d or 3d. In case of 3d array the 1st dimension corresponds to time.
         G (array): input control vector, 1d or 2d. In case of 2d array the 1st dimension corresponds to time. Set G to None if there is no control vector.
@@ -174,7 +175,7 @@ def Kalman_filter(Y, A, B, G, Q, R, X0, P0):
 
     # dimX = B[0].shape[1] if B.ndim == 3 else B.shape[1]  # dimension of X
     dimY = B[0].shape[0] if B.ndim == 3 else B.shape[0]  # dimension of Y
-    Nt = Y.shape[0]  # length of observation
+    Nt = Y.shape[1]  # length of observation
 
     # Creat iterators
     AL = A if A.ndim == 3 else itertools.repeat(A, Nt)
@@ -207,14 +208,15 @@ def Kalman_filter(Y, A, B, G, Q, R, X0, P0):
         mXt = At @ LmXt[-1] if Gt is None else At @ LmXt[-1] + Gt
 
         # Update
-        if not np.isnan(Y[t,]).all(): # if Y[t] is available
-            Et = Y[t,] - Bt @ Xtm    # Epsilon_{t}
+        if not np.isnan(Y[:,t]).any(): # if Y[t] is available
+            Et = Y[:,[t]] - Bt @ Xtm    # Epsilon_{t}
+            # assert(Et.shape[1]==1)
             Xtt = Xtm + Kt @ Et     # X_{t,t}
             Ptt = Ptm - Kt @ Bt @ Ptm    # P_{t,t}
             # Log(Proba_(Y_t|Y_{1..t-1}))
             LLHt = -1/2 * (np.log(la.det(St)) + Et.conjugate().T @ iSt @ Et + dimY * np.log(2*np.pi))
         else:
-            Et = np.nan     # Epsilon_{t}
+            Et = np.nan * np.zeros((dimY,1))     # Epsilon_{t}
             Xtt = Xtm.copy()    # X_{t,t}
             Ptt = Ptm.copy()    # P_{t,t}
             LLHt = 0
@@ -264,7 +266,7 @@ def Kalman_smoother(Y, A, B, G, Q, R, X0, P0):
     # Initialization
     LXtn = [LXtt[-1]]       # X_{t|n} with t=n is simply X{n|n}
     LPtn = [LPtt[-1]]
-    Nt = Y.shape[0]
+    Nt = Y.shape[1]
 
     for t in range(Nt-2, -1, -1):
         # short-hands

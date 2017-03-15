@@ -983,6 +983,22 @@ def timeseries_list2idx(Tl, dtuple=(0, 60*60, 0)):
 
 #### Linear algebra related ####
 
+def cprod(a,b):
+    """Compute the product a*(a+1)...*b with correct handling of singular cases"""
+    assert b >= 0 and a >= 0
+    v = 1
+    for t in range(a, b+1):
+        v *= t
+    return v
+
+
+def dpvander(v, pord, dord):
+    """Modified Vandermond matrix of the derivative of a polynomial"""
+    Vmat = np.rot90(np.vander(v, pord-dord+1))[::-1,:]  # decreasing order
+    fcof = np.asarray([cprod(s, s+dord-1) for s in range(1, pord-dord+2)])[::-1] # factorial coefficents due to derivative
+    return np.diag(fcof) @ Vmat
+
+
 def issymmetric(A):
     """Check if a matrix is symmetric.
     """

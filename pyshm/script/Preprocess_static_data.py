@@ -3,9 +3,7 @@
 """Apply preprocessing and assemble processed data.
 """
 
-import os
-import argparse
-import json
+import os, sys, argparse, json
 from pyshm.script import examplestyle, warningstyle
 
 class Options:
@@ -89,12 +87,12 @@ __all__ =["Preprocess_static_data", "Options"]
 
 __script__ = __doc__
 
-__warning__ = "Warning:" + warningstyle("\n  Run this script everytime after a sucessful updating of the local database with the script osmos_download. In most cases the optional preprocessings listed above are not necessary and it is recommended to run this script with default parameters.")
+__warning__ = "Warning:" + warningstyle("\n  This script should be run after the update of the local database (with the script osmos_download). In most cases the options of preprocessing are not necessary and it is recommended to use default parameters.")
 
 examples = []
-examples.append(["%(prog)s -v DBDIR/153", "Apply preprocessing with default parameters on the project of PID 153 in the database directory DBDIR, save the results in DBDIR/153/Preprocessed_static.pkl and print messages."])
+examples.append(["%(prog)s -v DBDIR/153", "Apply preprocessing with default parameters on the project 153 in the database directory DBDIR and print messages (the results will be saved in DBDIR/153/Preprocessed_static.pkl)."])
 examples.append(["%(prog)s -v --json DBDIR/153", "Save results in a json file in addition to the pickle file."])
-examples.append(["%(prog)s --sflag -v DBDIR/036", "Apply preprocessing by removing syncrhonisation error on the project of PID 36."])
+examples.append(["%(prog)s --sflag -v DBDIR/036", "Removing syncrhonisation error of the project 36."])
 __example__ = "Some examples of use (change the path seperator '/' to '\\' on Windows platform):" + "".join([examplestyle(x) for x in examples])
 
 
@@ -105,14 +103,14 @@ def main():
                                      formatter_class=argparse.RawDescriptionHelpFormatter,
                                      epilog=__warning__ + "\n\n" + __example__)
 
-    parser.add_argument('projdir', help='directory of a project in the database')
-    parser.add_argument('-s', '--sflag', dest='sflag', action='store_true', default=False, help='Remove synchronization error.')
-    parser.add_argument('-o', '--oflag', dest='oflag', action='store_true', default=False, help='Remove outliers.')
-    parser.add_argument('-t', '--tflag', dest='tflag', action='store_true', default=False, help='Apply the preprocessing on the temperature data.')
-    parser.add_argument('-j', '--jflag', dest='jflag', action='store_true', default=False, help='Detect jumps in the deformation data.')
-    parser.add_argument('-n', dest='nh', action='store', type=int, default=12, help='Gaps (in hour) larger than this value will be marked as nan (default 12).')
-    parser.add_argument('-v', '--verbose', dest='verbose', action='count', default=False, help='Print messages.')
-    parser.add_argument("--json", dest="json", action="store_true", default=False, help="Save results in json format.")
+    parser.add_argument('projdir', help="directory of a project in the database")
+    parser.add_argument('-s', '--sflag', dest='sflag', action='store_true', default=False, help="remove synchronization error")
+    parser.add_argument('-o', '--oflag', dest='oflag', action='store_true', default=False, help="remove outliers")
+    parser.add_argument('-t', '--tflag', dest='tflag', action='store_true', default=False, help="apply the preprocessing on the temperature data")
+    parser.add_argument('-j', '--jflag', dest='jflag', action='store_true', default=False, help="detect jumps in the deformation data")
+    parser.add_argument('-n', dest='nh', action='store', type=int, default=12, help="gaps (in hour) larger than this value will be marked as nan (default 12)")
+    parser.add_argument('-v', '--verbose', dest='verbose', action='count', default=False, help="print messages.")
+    parser.add_argument("--json", dest="json", action="store_true", default=False, help="save results in json format")
 
     options = parser.parse_args()
 

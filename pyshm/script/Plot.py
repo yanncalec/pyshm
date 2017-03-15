@@ -177,7 +177,7 @@ def preprocess_plot(figdir, Sdata, marknan=True, markjump=True, html=False):
         # mark jump
         for jidx, jval in enumerate(list(val['Jump'])):
             if jval:
-                axa.vlines(Xt.index[jidx], ylim1[0], ylim1[1], color='c', linewidth=2, alpha=0.2)
+                axa.vlines(Xt.index[jidx], ylim0[0], ylim0[1], color='c', linewidth=2, alpha=0.2)
         # blk = Tools.find_block_true(val['Jump'])
         # for (t0,t1) in blk:
         #     axes[1].fill_betweenx(ylim1, Xt.index[t0], Xt.index[t1-1], color='c', linewidth=2, alpha=0.1)
