@@ -173,8 +173,8 @@ def main():
                                      epilog=__warning__ + "\n\n" + __example__)
 
     parser.add_argument('dbdir', help='directory of the local OSMOS database')
-    parser.add_argument('-p', '--PID', dest='PID', type=int, default=None, help='project Key ID to be processed (by default all projects presented on the remote server will be processed)', metavar='integer')
-    parser.add_argument('-e', '--end', dest='endtime', type=str, default=None, help='fetch data til this time (by default all data til today will be fetched)', metavar='string')
+    parser.add_argument('-p', '--PID', dest='PID', type=str, default=None, help='project Key ID to be processed (by default all projects presented on the remote server will be processed)', metavar='integer')
+    parser.add_argument('-e', '--end', dest='endtime', type=str, default=None, help='fetch data til this time (by default all data til today will be fetched)', metavar='YYYY-MM-DD')
     # parser.add_option('-a', '--assemble', dest='assemble', action='store_true', default=False, help='Assemble all pkl files of different Liris of the same PID into a single pkl file named \'Raw_latest.pkl\'.')
     parser.add_argument('-f', '--force', dest='force', action='store_true', default=False, help='force to assembling data of all sensors into a single file (even when no new data are fetched)')
     parser.add_argument('-d', '--delete', dest='delete', action='store_true', default=False, help='delete failed projects from the local database')
@@ -182,6 +182,10 @@ def main():
     parser.add_argument('-v', '--verbose', dest='verbose', action='count', default=0, help='print messages')
 
     options = parser.parse_args()
+    try:
+        options.PID = int(options.PID)
+    except:
+        raise ValueError("Invalid format of PID: {}".format(options.PID))
 
     # if len(args) < 1:
     #     print('Usage: '+usage_msg)

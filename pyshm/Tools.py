@@ -20,14 +20,6 @@ from functools import wraps
 
 #### Functional operators ####
 
-# def along_axis(func):
-#     """Decorator functional for applying a function on a nd array along a given axis.
-#     """
-#     def newfunc(X, *args, axis=-1, **kwargs):
-#         np.apply_along_axis(func, axis, X, *args, **kwargs)
-#     return newfunc
-
-
 def nan_safe(func):
     """Make a function safe to nan by replacing nan values."""
     @wraps(func)
@@ -39,22 +31,17 @@ def nan_safe(func):
     return newfunc
 
 
-# def nan_safe_remove_nan_columns(func):
-#     """Make a function safe to nan by removing all columns containing nan from the arguments.
-#
-#     Args:
-#         func: a function that all positional arguments are 2d arrays of the same shape
+# def along_axis(func):
+#     """Decorator functional for applying a function on a nd array along a given axis.
 #     """
-#     def newfunc(*args, **kwargs):
-#         X = [np.atleast_2d(x) for x in args]
-#         Z0, nidx = remove_nan_columns(*X)
-#         return func(*Z, **kwargs)
+#     def newfunc(X, *args, axis=-1, **kwargs):
+#         np.apply_along_axis(func, axis, X, *args, **kwargs)
 #     return newfunc
-
 
 def along_axis(func):
     """Decorator functional for applying a function on a nd array along a given axis.
     """
+    @wraps(func)
     def newfunc(X, *args, axis=-1, **kwargs):
         Xm = np.moveaxis(X, axis, -1)  # move the target axis to the last dimension
         Xr = Xm.reshape((-1,Xm.shape[-1]))  # reshape to a 2d array
@@ -70,14 +57,15 @@ def along_axis(func):
     return newfunc
 
 
-# def recursive(stop_type):
-#     def _inner(func):
-#         def _recursive(data, *args, **kw):
-#             if not isinstance(data, stop_type):
-#                 return map(_recursive, data)
-#             return func(data, *args, **kw)
-#         return _recursive
-#     return _inner
+def cumop(func):
+    @wraps(func)
+    def newfunc(X, *args, **kwargs):
+        Y = np.zeros(len(X))
+        for t in range(len(X)):
+            Y[t] = func(X[:t+1], *args, **kwargs)
+        return Y
+    return newfunc
+
 
 def recursive(niter):
     """Recursion decorator"""
@@ -88,19 +76,6 @@ def recursive(niter):
             return x
         return _recursive
     return _inner
-
-# def recursive(p, func, x, *args, **kwargs):
-#     """Recursive application of any function.
-
-#     Args:
-#         p (int): number of recursion
-#         func (function handle): func(func(x)) must be meaningful
-#         x, args, kwargs: input, arguments and keyword arguments of func
-#     """
-#     if p>0:
-#         return func(recursive(p-1, func, x, *args, **kwargs), *args, **kwargs)
-#     else:
-#         return x #func(x, *args, **kwargs)
 
 
 def get_actual_kwargs(func, **kwargs):
@@ -386,6 +361,31 @@ def L_filter_boundary(X, wsize=1):
     return Y
 
 
+#### Datetime and time-series related ####
+
+def time_findgap(T0, dtuple=(0, 60*60, 0)):
+    """
+    Find gaps in a time-stamp series.
+
+    Args:
+        T0: list of time-stamp
+        dtuple: a tuple of (day, second, microsecond) that define the minimal size of the gap
+    Returns:
+        G: index of gaps
+    """
+    dt = datetime.timedelta(*dtuple)  # size of the gap
+
+    G = np.asarray(np.where(np.diff(T0) > dt)[0]+1, dtype=int)
+    return G
+    # # G = np.int32(np.hstack([0, G, len(T0)]))
+    #
+    # sidx = []
+    # for n in range(1,len(G)):
+    #     sidx.append((G[n-1], G[n]))
+    #
+    # return sidx
+
+
 #### Transformation ####
 
 def roll_fill(X0, shift, val=np.nan, axis=-1):
@@ -426,76 +426,76 @@ def sdiff(X, p, axis=-1):
         return dX
 
 
-def isdiff(dX, p, av=None, axis=-1):
-    """Inverse seasonal difference (or seasonal integration).
+# def isdiff(dX, p, av=None, axis=-1):
+#     """Inverse seasonal difference (or seasonal integration).
 
-    At each time index t, the seasonal difference of lag p is defined as
-        X[t] + X[t-p]
+#     At each time index t, the seasonal difference of lag p is defined as
+#         X[t] + X[t-p]
 
-    Args:
-        dX (nd array): first dimension is the time axis
-        p (int): seasonality
-    """
-    if av is None:
-        av = np.zeros(p)
-    else:
-        assert(len(av)>=p)
-    if p==0:
-        return dX #np.np.zeros_like(xt)
-    else:
-        Nidx = np.isnan(dX)
-        dX[np.isnan(dX)] = 0
-        X = np.zeros_like(dX)
+#     Args:
+#         dX (nd array): first dimension is the time axis
+#         p (int): seasonality
+#     """
+#     if av is None:
+#         av = np.zeros(p)
+#     else:
+#         assert(len(av)>=p)
+#     if p==0:
+#         return dX #np.np.zeros_like(xt)
+#     else:
+#         Nidx = np.isnan(dX)
+#         dX[np.isnan(dX)] = 0
+#         X = np.zeros_like(dX)
 
-        for i in range(p):
-            dX[i] += av[i]
-            X[i::p] = np.cumsum(dX[i::p], axis=axis)
-        X[Nidx] = np.NaN
+#         for i in range(p):
+#             dX[i] += av[i]
+#             X[i::p] = np.cumsum(dX[i::p], axis=axis)
+#         X[Nidx] = np.NaN
 
-        return X
-
-
-def dsdt(X, sord=3, ssize=24, tord=1, tsize=1, **kwarg):
-    """De-seasonal and de-trend operator.
-
-    This function removes the seasonal and trend components by applying sdiff with different steps.
-    """
-    return rfunc(tord, sdiff, rfunc(sord, sdiff, np.asarray(X), ssize, **kwarg), tsize, **kwarg)
+#         return X
 
 
-def idsdt(X, sord=3, ssize=24, tord=1, tsize=1, av=None):
-    """Inverse de-seasonal and de-trend operator.
-    """
-    isdiff = lambda X, p: isdiff(X, p, av=av)
-    return rfunc(sord, isdiff, rfunc(tord, isdiff, np.asarray(X), tsize), ssize)
+# def dsdt(X, sord=3, ssize=24, tord=1, tsize=1, **kwarg):
+#     """De-seasonal and de-trend operator.
+
+#     This function removes the seasonal and trend components by applying sdiff with different steps.
+#     """
+#     return rfunc(tord, sdiff, rfunc(sord, sdiff, np.asarray(X), ssize, **kwarg), tsize, **kwarg)
 
 
-def nmldiff_transform(X, v=None, center=False):
-    """ Transform data by normalized difference.
+# def idsdt(X, sord=3, ssize=24, tord=1, tsize=1, av=None):
+#     """Inverse de-seasonal and de-trend operator.
+#     """
+#     isdiff = lambda X, p: isdiff(X, p, av=av)
+#     return rfunc(sord, isdiff, rfunc(tord, isdiff, np.asarray(X), tsize), ssize)
 
-        The normalized difference of a time series X(t) is the ratio between its derivative and its value:
-            X'(t)/X(t)
-        To prevent division-by-zero error, X(t) is adjusted by a constant v.
 
-        Args:
-            X (pandas Series or DataFrame): input time series
-            v (float): a fail-proof value
-            center (bool): if True use centered two points difference
-    """
-    if not (isinstance(X, pd.DataFrame) or isinstance(X, pd.Series)):
-        raise TypeError("Input must be a pandas DataFrame or Series")
+# def nmldiff_transform(X, v=None, center=False):
+#     """ Transform data by normalized difference.
 
-    if v is None:
-        # transformed data have a fixed magnitude range.
-        v = X.std()*100
-    X = X - X.min() + v  # X must be strictly positive
+#         The normalized difference of a time series X(t) is the ratio between its derivative and its value:
+#             X'(t)/X(t)
+#         To prevent division-by-zero error, X(t) is adjusted by a constant v.
 
-    if center:
-        dX = (X.shift(-1) - X.shift(1))/2
-    else:
-        dX = X.diff()
+#         Args:
+#             X (pandas Series or DataFrame): input time series
+#             v (float): a fail-proof value
+#             center (bool): if True use centered two points difference
+#     """
+#     if not (isinstance(X, pd.DataFrame) or isinstance(X, pd.Series)):
+#         raise TypeError("Input must be a pandas DataFrame or Series")
 
-    return dX/X
+#     if v is None:
+#         # transformed data have a fixed magnitude range.
+#         v = X.std()*100
+#     X = X - X.min() + v  # X must be strictly positive
+
+#     if center:
+#         dX = (X.shift(-1) - X.shift(1))/2
+#     else:
+#         dX = X.diff()
+
+#     return dX/X
 
 
 #### Interpolation and projection ####
@@ -599,11 +599,11 @@ def polyprojection(X, deg=1):
 select_func = lambda x,y,c: y if abs(x-c)>abs(y-c) else x
 
 
-def shrinkage(X, t, soft=True):
+def shrinkage(X0, t, soft=True):
     """Shrinkage by a given threshold.
 
     Args:
-        X (array): input
+        X0 (array): input
         t (float): threshold value
         soft (bool): hard or soft shrinkage
     Returns:
@@ -661,6 +661,7 @@ def remove_plateau_jumps(y0, wsize=10, thresh=5., bflag=False, dratio=0.5):
     Note: This function may have no effect on the data which contain no regular part
     (eg, the whole signal is sawtooth-like).
     """
+    assert y0.ndim == 1
 
     # 1. Apply L and U filter to detect plateau jumps
     if bflag: # boundary preserving filter
@@ -679,7 +680,8 @@ def remove_plateau_jumps(y0, wsize=10, thresh=5., bflag=False, dratio=0.5):
     # method 2: using all values of dy, this seems to be more stable
     # vthresh = dy.mean()*thresh
 
-    pflag = np.abs(shrinkage(dy, vthresh))>0 # might be all False if whole y0 is sawtooth-like
+    _, pflag = shrinkage(dy, vthresh)
+    # pflag = np.abs(sdy)>0 # might be all False if whole y0 is sawtooth-like
     pidx = find_block_true(pflag) # blocks of positions which are beyond the threshold
     if np.sum(pflag)<len(y0):
         mval = np.mean(my[np.logical_not(pflag)]) # take the mean value of positions below the threshold
@@ -764,6 +766,7 @@ def find_block_true(X):
     n = 0
     sidx = []
     while n < len(X):
+        # print(X.shape, X[n])
         if X[n]:
             a, b = n, n+1
             while b<len(X) and X[b]:
@@ -818,168 +821,6 @@ def remove_nan_columns(*args):
         return Z, cidx
     else:
         return Z[0], cidx
-
-
-#### Datetime and time-series related ####
-
-def time_findgap(T0, dtuple=(0, 60*60, 0)):
-    """
-    Find gaps in a time-stamp series.
-
-    Args:
-        T0: list of time-stamp
-        dtuple: a tuple of (day, second, microsecond) that define the minimal size of the gap
-    Returns:
-        G: index of gaps
-    """
-    dt = datetime.timedelta(*dtuple)  # size of the gap
-
-    G = np.asarray(np.where(np.diff(T0) > dt)[0]+1, dtype=int)
-    return G
-    # # G = np.int32(np.hstack([0, G, len(T0)]))
-    #
-    # sidx = []
-    # for n in range(1,len(G)):
-    #     sidx.append((G[n-1], G[n]))
-    #
-    # return sidx
-
-
-def time_ceil(t0, unit="hour"):
-    """
-    Return the instant next to t0 with rounded unit (hour or minute).
-    """
-    if isinstance(t0, str):
-        t0 = dateutil.parser.parse(t0)
-
-    if unit == "hour":  # return the next instant with rounded hour
-        flag = t0.minute > 0 or t0.second > 0 or t0.microsecond > 0
-        t = t0 + datetime.timedelta(0, 60*60*flag)
-        return t.replace(minute=0, second=0, microsecond=0)
-    elif unit == "minute":  # return the next instant with rounded minute
-        flag = t0.second > 0 or t0.microsecond > 0
-        t = t0 + datetime.timedelta(0, 60*flag)
-        return t.replace(second=0, microsecond=0)
-    else:  # return the next instant with rounded second
-        flag = t0.microsecond > 0
-        t = t0 + datetime.timedelta(0, 1*flag)
-        return t.replace(microsecond=0)
-
-
-def time_floor(t0, unit="hour"):
-    """
-    Return the instance just before t0 with rounded unit (hour or minute).
-    """
-    if isinstance(t0, str):
-        t0 = dateutil.parser.parse(t0)
-
-    if unit == "hour":  # return the next instant with rounded hour
-        return t0.replace(minute=0, second=0, microsecond=0)
-    elif unit == "minute":  # return the next instant with rounded minute
-        return t0.replace(second=0, microsecond=0)
-    else:  # return the next instant with rounded second
-        return t0.replace(microsecond=0)
-
-
-def time_range(t0, N, dtuple=(0, 60*60, 0)):
-    """
-    Generate a list of N datetime objects starting from the instant t0 with a
-    given step dt.
-
-    Args:
-        t0 (datetime object): starting instant
-        N (int): length of the list
-        dtuple (tuple): (day, second, microsecond) that defines the sampling step dt
-    Return:
-        A list of datetime objects with the n-th element given by t0+n*dt.
-    """
-    dt = datetime.timedelta(*dtuple)
-
-    T = [t0 + dt*n for n in range(N)]
-
-    return T
-
-
-def time_linspace(t0, t1, N):
-    """
-    Generate N equally spaced points between two time instants t0 and t1.
-    """
-    dt = (t1-t0)/N
-    return [t0 + dt*n for n in range(N)]
-
-
-def time2second(T0, t0):
-    """
-    Convert a time series from datetime object to second.
-
-    Args:
-        T0 : list of datetime object
-        t0 : datetime object
-            the starting instant
-    Return:
-        An array with the n-th element given by T0[n]-t0 in seconds
-    """
-    dT0 = np.zeros(len(T0))  # relative time stamp wrt the T0[0], in seconds
-
-    for i in range(len(T0)):
-        toto = T0[i]-t0
-        dT0[i] = toto.days*24*3600+toto.seconds  # +toto.microseconds/1000/1000
-
-    return dT0
-
-
-def str2time(t0):
-    """
-    Convert a string to a datetime object.
-    """
-    return [dateutil.parser.parse(t) for t in t0]
-
-
-# def timeseries_list2array(X0, Tl, dtuple=(0, 60*60, 0)):
-#     """
-#     Convert a list of arrays X0 to an array using the information of the given
-#     timeseries.
-#
-#     Args:
-#         X0: a list of arrays (of float), X0[n] has the same length as Tl[n]
-#         Tl: Tl[n] is a list of time-stamps, see timeseries_list2idx
-#         dtuple : see timeseries_list2idx
-#     """
-#     gidx, _ = timeseries_list2idx(Tl, dtuple=dtuple)
-#     X1 = rejoin_timeseries(X0, gidx)
-#     T1 = rejoin_timeseries(Tl, gidx)
-#
-#     return np.asarray(X1, dtype=np.float64), T1
-
-
-def timeseries_list2idx(Tl, dtuple=(0, 60*60, 0)):
-    """
-    Convert a list of time-stamp series into position indexes with respect to
-    the first time-stamp and with a given sampling step which is only applied on the gap.
-
-    Args:
-        Tl (list): Tl[n] is a list of time-stamps aranged in increasing order. For m>n Tl[n] is older than Tl[m], and they are mutually non-interlapped.
-        dtuple (tuple): a tuple of (day, second, microsecond) that define the sampling step on the gap.
-    Returns:
-        A: a list. A[n] is the index of the time-stamp Tl[n][0]
-        B: a list of indexes. B[n][k] is the index of Tl[n][k]
-    """
-
-    dt = datetime.timedelta(*dtuple)
-
-    t_start, t_end = Tl[0][0], Tl[-1][-1]
-    gidx = []
-
-    n=0 # counter
-    for idx, T in enumerate(Tl):
-        gidx.append(list(range(n, n+len(T)))) # keep the non-gap part
-        n += len(T)
-
-        if idx<len(Tl)-1: # add the length of the gap
-            n += int(np.floor((Tl[idx+1][0]-Tl[idx][-1])/dt))
-
-    return [g[0] for g in gidx], gidx
-
 
 #### Linear algebra related ####
 
@@ -1100,5 +941,6 @@ def safe_slice(X0, tidx, wsize, mode="soft", causal=False):
 
 
 safe_norm = nan_safe(la.norm)
-
-# safe_mean = nan_safe(np.mean)
+cummax = along_axis(cumop(nan_safe(np.max)))
+cummin = along_axis(cumop(nan_safe(np.min)))
+cumstd = along_axis(cumop(nan_safe(np.std)))

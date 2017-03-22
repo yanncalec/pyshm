@@ -42,6 +42,8 @@ def to_json(X, verbose=False):
     Returns:
         a dictionary composed of the converted key-value pairs.
     """
+    import numbers
+
     Res = {}
     for k, v in X.items():
         if isinstance(v, pandas.DataFrame) or isinstance(v, pandas.Series):
@@ -55,11 +57,11 @@ def to_json(X, verbose=False):
                     u = {str(k):v for k,v in v.items()}
                     json.dumps(u, cls=MyEncoder)
                     Res[k] = u
-                elif isinstance(v, np.ndarray) or isinstance(v, str) or isinstance(v, int) or v is None:
+                elif isinstance(v, np.ndarray) or isinstance(v, str) or isinstance(v, numbers.Number) or v is None:
                     Res[k] = v
                 else:
                     # This should not happen:
-                    raise TypeError('The values of the input dictionary must be dictionary or None.')
+                    raise TypeError('to_json: The values of the input dictionary is not valid.')
             except Exception as msg:
                 if verbose:
                     print(warningstyle("Warning:\n{}".format(msg)))
@@ -146,10 +148,8 @@ def static_data_analysis_template(func):
                 print('Decomposition of signals...')
                 print('\tMoving window estimator: {}\n\tMoving window size: {}\n\tOrder of the KZ filter: {}'.format(options.mwmethod, options.mwsize, options.kzord))
 
+            (Xall,Xsnl,Xtrd), (Yall,Ysnl,Ytrd), Midx = OSMOS.prepare_static_data(infile, mwsize=options.mwsize, kzord=options.kzord, method=options.mwmethod, timerange=(options.time0, options.time1))
 
-            (Xall,Xsnl,Xtrd), (Yall,Ysnl,Ytrd), Midx = OSMOS.prepare_static_data(infile,
-                                                                                 mwsize=options.mwsize, kzord=options.kzord, method=options.mwmethod,
-                                                                                 timerange=(options.time0, options.time1))
             if options.component.upper() == 'SEASONAL':
                 Xcpn, Ycpn = Xsnl, Ysnl
             else:
@@ -183,7 +183,7 @@ def static_data_analysis_template(func):
         with open(outfile0+'.json', 'w') as fp:
             json.dump(resjson, fp, cls=MyEncoder)
         if options.verbose:
-            print('Results saved in {}'.format(outfile0+'.json'))
+            print('Results saved in\n{}'.format(outfile0+'.json'))
 
         return resdic, resjson
     return newfunc

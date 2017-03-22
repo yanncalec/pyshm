@@ -267,17 +267,18 @@ def static_data_preprocessing(X0,
         # The values wsize=1, thresh=5. have been tuned for OSMOS data
         # (see projets 36, 38)
         if sflag:
-            Elon0 = Tools.remove_plateau_jumps(Elon0, wsize=1, thresh=10., dratio=0.5, bflag=False)
+            Elon0 = Tools.remove_plateau_jumps(Elon0, wsize=1, thresh=5., dratio=0.8, bflag=False)  # first correction using a small window
+            Elon0 = Tools.remove_plateau_jumps(Elon0, wsize=24, thresh=20., dratio=0.8, bflag=False)  # second correction using a large window to remove residual errors
             if tflag:
-                Temp0 = Tools.remove_plateau_jumps(Temp0, wsize=1, thresh=10., dratio=0.5, bflag=False)
+                Temp0 = Tools.remove_plateau_jumps(Temp0, wsize=1, thresh=5., dratio=0.8, bflag=False)
 
         # 2. Outliers
         # The values wsize=10, thresh=10. have been tuned for OSMOS data
         # (see projets 46/200, 44/192, 76/369)
         if oflag:
-            Elon0 = Tools.remove_plateau_jumps(Elon0, wsize=10, thresh=10., dratio=0.5, bflag=False)
+            Elon0 = Tools.remove_plateau_jumps(Elon0, wsize=24, thresh=20., dratio=0.8, bflag=False)
             if tflag:
-                Temp0 = Tools.remove_plateau_jumps(Temp0, wsize=10, thresh=10., dratio=0.5, bflag=False)
+                Temp0 = Tools.remove_plateau_jumps(Temp0, wsize=24, thresh=5., dratio=0.8, bflag=False)
 
         # 3. Resampling
         toto = pd.DataFrame(data = {'Temperature':Temp0, 'Elongation':Elon0}, index=X0.index)
@@ -292,11 +293,17 @@ def static_data_preprocessing(X0,
         # Add the Type column
         Type1 = pd.Series(data=np.zeros(len(X1), dtype=int), index=X1.index)
         if len(Rtsx)>0:
-            Type1.loc[Rtsx]+=0b001  # loc since Rtsx are time-stamp indexes
+            # Type1.loc[Rtsx]+=0b001  # loc since Rtsx are timestamp indexes
+            for t in Rtsx:
+                Type1[t] += 0b001
         if len(Ntsx)>0:
-            Type1.loc[Ntsx]+=0b010
+            # Type1.loc[Ntsx]+=0b010
+            for t in Ntsx:
+                Type1[t] += 0b010
         if len(Jidx)>0:
-            Type1.iloc[Jidx]+=0b100  # iloc since Jidx are integers
+            # Type1.iloc[Jidx]+=0b100  # iloc since Jidx are integers
+            for t in Jidx:
+                Type1.iloc[t] += 0b100
 
         X1['Type']=Type1
         return X1
@@ -313,8 +320,8 @@ def resampling_time_series(X, rsp='H', m=6):
         m (int): resampling is considered as invalid if no original data exist in an interval of m points
     Returns:
         S (pandas DataFrame or Series): resampled time series
-        Rtsx (pandas DateTimeIndex): time-stamps of resampled points
-        Nidx (list): index where no original observations exist on an interval of length m
+        Rtsx (pandas DateTimeIndex): timestamps of resampled points
+        Nidx: timestamps where no original observations exist on an interval of length m
     """
     Rtsx = pd.date_range(X.index[0].ceil(rsp), X.index[-1].floor(rsp), freq=rsp)
 
@@ -338,7 +345,7 @@ def resampling_time_series(X, rsp='H', m=6):
     return S, Rtsx, Ntsx
 
 
-def load_raw_data(fname):
+def load_raw_data(fname, staticonly=True):
     """Load raw data from a given file.
 
     Raw data are in pandas format and containing only three fields: Temperature,
@@ -373,13 +380,14 @@ def load_raw_data(fname):
         # Sdata[loc] = toto
 
         # Extraction of dynamic data
-        Tidx2 = Data.Type==2
-        Ddata[loc] = []
-        if np.any(Tidx2): # if containing dynamic data
-            Didx = Tools.time_findgap(Data[Tidx2].index.to_pydatetime(), dtuple=(0,0,40000))
-            Didx = np.int32(np.hstack([0, Didx, len(Tidx2)]))
-            for s in range(len(Didx)-1):
-                Ddata[loc].append(Data[Tidx2]['Elongation'].iloc[Didx[s]:Didx[s+1]]) # add the first event
+        if not staticonly:
+            Tidx2 = Data.Type==2
+            Ddata[loc] = []
+            if np.any(Tidx2): # if containing dynamic data
+                Didx = Tools.time_findgap(Data[Tidx2].index.to_pydatetime(), dtuple=(0,0,40000))
+                Didx = np.int32(np.hstack([0, Didx, len(Tidx2)]))
+                for s in range(len(Didx)-1):
+                    Ddata[loc].append(Data[Tidx2]['Elongation'].iloc[Didx[s]:Didx[s+1]]) # add the first event
 
     return Rdata, Sdata, Ddata, Locations
 
@@ -441,8 +449,14 @@ def load_static_data(fname):
 
         Data[loc] = X[Rblx][['Temperature', 'Elongation', 'Missing', 'Jump']]
 
-    Tall = concat_mts(Data, 'Temperature')[:]  # temperature of all sensors
-    Eall = concat_mts(Data, 'Elongation')[:]  # elongation of all sensors
+    # Tall = concat_mts(Data, 'Temperature')  # temperature of all sensors
+    # Eall = concat_mts(Data, 'Elongation')  # elongation of all sensors
+
+    Tall0 = concat_mts(Data, 'Temperature')  # temperature of all sensors
+    Eall0 = concat_mts(Data, 'Elongation')  # elongation of all sensors
+    # remove the name 'index' in the index column
+    Tall = pd.DataFrame(data=np.asarray(Tall0), columns=Tall0.columns, index=list(Tall0.index))
+    Eall = pd.DataFrame(data=np.asarray(Eall0), columns=Eall0.columns, index=list(Eall0.index))
 
     return Data, Tall, Eall, Locations
 
@@ -461,8 +475,14 @@ def concat_mts(Data, field):
 
     Locations = list(Data.keys())
     Locations.sort()
-    toto = [Data[loc][field] for loc in Locations]
-
+    # toto = [Data[loc][field] for loc in Locations]
+    toto = []
+    for loc in Locations:
+        v = Data[loc][field].copy()
+        # remove duplicate indexes
+        v = v.reset_index().drop_duplicates(subset='index', keep='last').set_index('index')
+        # strangely, v may still contain the field name, convert it to Series using iloc
+        toto.append(v.iloc[:,0])
     return pandas.concat(toto, axis=1, keys=Locations)
 
 

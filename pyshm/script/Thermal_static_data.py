@@ -35,8 +35,9 @@ def Thermal_static_data(Xcpn, Ycpn, options):
 def _Thermal_static_data(Xcpn, Ycpn, options):
     """
     Args:
-        infile (str): name of pickle file containing the preprocessed static data
-        outdir0 (str): name of the directory for the output
+        Xcpn (pandas DataFrame): component of temperature
+        Ycpn (pandas DataFrame): component of elongation
+
         options (Options): instance containing the fields of the class Options
     Return:
         a dictionary containing the following fields of estimation:
@@ -57,7 +58,7 @@ def _Thermal_static_data(Xcpn, Ycpn, options):
     B = {}  # intercept
 
     Yprd0 = {}  # final prediction from inputs
-    # Yerr0 = {}  # error of prediction
+    Yerr0 = {}  # error of prediction
 
     Tidx = Xcpn.index  # time index
     Locations = list(Xcpn.keys())
@@ -79,33 +80,37 @@ def _Thermal_static_data(Xcpn, Ycpn, options):
         # update options
         options.trnperiod = (tidx0, tidx1)
         options.Ntrn = Ntrn
-        
+
         # Estimation of delay: use the differentials, not the original values
-        delay = Stat.global_thermal_delay(xtrn.diff(options.dstep), ytrn.diff(options.dstep), dlrng=options.dlrng)
+        delay = Stat.global_delay(xtrn.diff(), ytrn.diff(), dlrng=options.dlrng)
         # Estimation of thermal coefficients given the thermal delay
-        a, b, _ = Stat.estimate_thermal_coefficient(xtrn, ytrn, delay=delay, dstep=options.dstep, robust=options.robust, shrink=options.shrink)
-
-        if options.verbose>1:
-            print("\t\tthermal delay = {}, thermal coefficient = {:.3f}".format(delay, a))
-
+        xvar = Tools.roll_fill(np.asarray(xtrn), delay)
+        yvar = np.asarray(ytrn)
+        res = Stat.deconv(np.atleast_2d(yvar), np.atleast_2d(xvar), 1)  # estimation
+        a, b = float(res[1][0]), float(res[1][1])  # matrix -> scalar
         # Prediction
-        Yprd0[aloc] = a * Tools.roll_fill(xobs, delay)
+        Yprd0[aloc] = a * Tools.roll_fill(np.asarray(xobs), delay)
+        Yerr0[aloc] = Ycpn[aloc] - Yprd0[aloc]
         D[aloc] = delay
         A[aloc] = a
         B[aloc] = b
 
-    return {'Delay':D, 'Slope':A, 'Intercept':B, 'Yprd':pd.DataFrame(Yprd0, index=Tidx)}
+        if options.verbose>1:
+            print("\t\tthermal delay = {}, thermal coefficient = {:.3f}".format(delay, a))
+
+
+    Yprd = pd.DataFrame(Yprd0, index=Tidx)
+    Yerr = pd.DataFrame(Yerr0, index=Tidx)
+    return {'Delay':D, 'Slope':A, 'Intercept':B, 'Yprd':Yprd, 'Yerr':Yerr}
 
 # __all__ = ['Thermal_static_data', 'Options']
 
 __script__ = __doc__
 
-__warning__ = "Warning:" + warningstyle("\n This script can be applied only on data preprocessed by the script osmos_preprocessing (the data file is typically named Preprocessed_static.pkl). Two distinct models (static and dynamic) are implemented and are accessible via the corresponding subcommand.")
+# __warning__ = "Warning:" + warningstyle("\n")
 
 examples = []
 examples.append(["%(prog)s -h", "Print this help messages (about common parameters)"])
-examples.append(["%(prog)s static -h", "Print help messages about the static model"])
-examples.append(["%(prog)s dynamic -h", "Print help messages about the dynamic model"])
 examples.append(["%(prog)s static DBDIR/153 OUTDIR/153 --alocs=754 --time0 2016-03-01 --time1 2016-08-01 -vv", "Apply the static model on the preprocessed data of the project of PID 153 for the period from 2016-03-01 to 2016-08-01, and save the results in the directory named OUTDIR/153. Process only the sensor of location 754 (--alocs=754), use the temperature of the same sensor to explain the elongation data (scalar model). Print supplementary messages."])
 examples.append(["%(prog)s static DBDIR/153 OUTDIR/153 --alocs=754,755 --ylocs=0 -v", "Process the sensors of location 754 and 755, for each of them use the temperature of both to explain the elongation data (vectorial model)."])
 examples.append(["%(prog)s static DBDIR/153 OUTDIR/153 --ylocs=0 -v", "Process all sensors, for each of them use the temperature  of all to explain the elongation data."])
@@ -120,43 +125,35 @@ __example__ = "Some examples of use (change the path seperator '/' to '\\' on Wi
 def main():
     # usage_msg = '%(prog)s [options] <infile> [outdir]'
     # parser = argparse.ArgumentParser(description=__script__, usage=usage_msg)
-    mainparser = argparse.ArgumentParser(description=__script__,
-                                             formatter_class=argparse.RawDescriptionHelpFormatter,
-                                             epilog=__warning__ + "\n\n" + __example__)
+    mainparser = argparse.ArgumentParser(description=__script__, formatter_class=argparse.RawDescriptionHelpFormatter,
+    #  epilog=__warning__ + "\n\n" + __example__)
+    )
 
     mainparser.add_argument("projdir", help="directory of a project in the database including the preprocessed static data.")
     mainparser.add_argument("outdir", type=str, default=None, help="directory where results are saved.")
 
     sensor_opts = mainparser.add_argument_group("Sensor options")
-    sensor_opts.add_argument("--alocs", dest="alocs", type=lambda s: [int(x) for x in s.split(',')], default=None, help="Location key IDs of sensors to be analyzed (default=all sensors).", metavar="integers separated by \',\'")
-    sensor_opts.add_argument("--component", dest="component", type=str, default="trend", help="Type of component of data for analysis: all (default), trend, seasonal.", metavar="string")
+    sensor_opts.add_argument("--alocs", dest="alocs", type=lambda s: [int(x) for x in s.split(',')], default=None, help="location ID of sensors to be analyzed (default=all sensors).", metavar="integers separated by \',\'")
+    sensor_opts.add_argument("--component", dest="component", type=str, default="trend", help="type of component of data to be analyzed: trend (default), seasonal, all.", metavar="string")
 
     wdata_opts = mainparser.add_argument_group("Data truncation options")
-    wdata_opts.add_argument("--time0", dest="time0", type=str, default=None, help="Starting timestamp (default=the begining of data set).", metavar="YYYY-MM-DD")
-    wdata_opts.add_argument("--time1", dest="time1", type=str, default=None, help="Ending timestamp (default=the ending of data set).", metavar="YYYY-MM-DD")
+    wdata_opts.add_argument("--time0", dest="time0", type=str, default=None, help="starting timestamp (default=the begining of data set).", metavar="YYYY-MM-DD")
+    wdata_opts.add_argument("--time1", dest="time1", type=str, default=None, help="ending timestamp (default=the ending of data set).", metavar="YYYY-MM-DD")
 
     ddata_opts = mainparser.add_argument_group("Component decomposition options")
-    ddata_opts.add_argument("--mwmethod", dest="mwmethod", type=str, default="mean", help="Type of moving window mean estimator for decomposition of component: mean (default), median.", metavar="string")
-    ddata_opts.add_argument("--mwsize", dest="mwsize", type=int, default=24, help="Length of the moving window (default=24).", metavar="integer")
-    ddata_opts.add_argument("--kzord", dest="kzord", type=int, default=1, help="Order of Kolmogorov-Zurbenko filter (default=1).", metavar="integer")
+    ddata_opts.add_argument("--mwmethod", dest="mwmethod", type=str, default="mean", help="type of moving window estimator for decomposition of component: mean (default), median.", metavar="string")
+    ddata_opts.add_argument("--mwsize", dest="mwsize", type=int, default=24, help="length of the moving window (default=24).", metavar="integer")
+    ddata_opts.add_argument("--kzord", dest="kzord", type=int, default=2, help="order of filter (default=2).", metavar="integer")
 
     tdata_opts = mainparser.add_argument_group("Training data options")
-    tdata_opts.add_argument("--sidx", dest="sidx", type=int, default=0, help="starting time index (an integer) of the training data relative to time0 (default=0).", metavar="integer")
-    tdata_opts.add_argument("--Ntrn", dest="Ntrn", type=int, default=3*30*24, help="Length of the training data (default=24*30*3).", metavar="integer")
+    tdata_opts.add_argument("--sidx", dest="sidx", type=int, default=0, help="relative starting time index of the training data relative to time0 (default=0).", metavar="integer")
+    tdata_opts.add_argument("--Ntrn", dest="Ntrn", type=int, default=3*30*24, help="length of the training data (default=24*30*3).", metavar="integer")
 
     model_opts = mainparser.add_argument_group("Model options")
-    model_opts.add_argument('--dlrng', dest='dlrng', nargs=2, type=int, default=(-6,6), help='Range of search for the optimal delay, default=[-6,6].', metavar='integer')
-    # model_opts.add_argument("--dlrng", dest="dlrng", type=lambda s: [int(x) for x in s.split(',')], default=[-6,6], help="Range of search for the optimal delay, default=[-6,6]", metavar="integer, integer")
-    model_opts.add_argument("--dstep", dest="dstep", type=int, default=2, help="Step for calculation of differential (default=2).", metavar="integer")
-    model_opts.add_argument("--shrink", dest="shrink", type=float, default=3*10**-3, help="Threshold value of thermal coefficient (default=3*10**-3).", metavar="float")
-    model_opts.add_argument("--robust", dest="robust", action="store_true", default=False, help="Use robust linear regression.")
-    # model_opts.add_argument('--luwsize', dest='luwsize', type=int, default=24*5, help='Length of the smoothing window for estimation of thermal delay (default=24*5).', metavar='integer')
-    # model_opts.add_argument('--globaldelay', dest='const', action='store_true', default=False, help='Add constant trend in the convolution model (default: no constant trend).')
-    # model_opts.add_argument('--global', dest='const', action='store_true', default=False, help='Add constant trend in the convolution model (default: no constant trend).')
-    # model_opts.add_argument('--dlrange', dest='dlrange', type=tuple, default=(-6,6), help='Range of search for the optimal delay, default=(-6,6)', metavar='[integer, integer]')
-    # model_opts.add_argument('--dlrange', dest='dlrange', type=lambda s: [int(x) for x in s.split(',')], default=[-6,6], help='Range of search for the optimal delay, default=[-6,6]', metavar='\"integer,  integer\"')
+    model_opts.add_argument('--dlrng', dest='dlrng', nargs=2, type=int, default=(-6,6), help='range of search for the optimal delay, default=[-6,6].', metavar='integer')
+    model_opts.add_argument("--shrink", dest="shrink", type=float, default=3*10**-3, help="threshold value of thermal coefficient (default=3*10**-3).", metavar="float")
 
-    mainparser.add_argument("-v", "--verbose", dest="verbose", action="count", default=0, help="Print message.")
+    mainparser.add_argument("-v", "--verbose", dest="verbose", action="count", default=0, help="print message.")
 
     options = mainparser.parse_args()
 
@@ -171,7 +168,7 @@ def main():
 
     # create a subfolder for output
     options.func_name = __name__[__name__.rfind('.')+1:]
-    outdir = os.path.join(options.outdir, options.func_name, "component[{}]_alocs[{}]_robust[{}]".format(options.component.upper(), options.alocs, options.robust))
+    outdir = os.path.join(options.outdir, options.func_name, "component[{}]_alocs[{}]".format(options.component.upper(), options.alocs))
     try:
         os.makedirs(outdir)
     except OSError:

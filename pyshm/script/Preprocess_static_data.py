@@ -40,18 +40,16 @@ def Preprocess_static_data(projdir, options):
         if options.verbose:
             print('Processing location {}...'.format(loc))
         if len(X)>0:
-            try:
-                Sdata[loc] = OSMOS.static_data_preprocessing(X,
-                                                            sflag=options.sflag,
-                                                            oflag=options.oflag,
-                                                            jflag=options.jflag,
-                                                            tflag=options.tflag,
-                                                            nh=options.nh)
-
-            except Exception as msg:
-                print(colorama.Fore.RED + 'Error: ', msg)
-                print(colorama.Style.RESET_ALL)
-                # raise Exception
+            Sdata[loc] = OSMOS.static_data_preprocessing(X,
+                                                        sflag=options.sflag,
+                                                        oflag=options.oflag,
+                                                        jflag=options.jflag,
+                                                        tflag=options.tflag,
+                                                        nh=options.nh)
+            # except Exception as msg:
+            #     print(colorama.Fore.RED + 'Error: ', msg)
+            #     print(colorama.Style.RESET_ALL)
+            #     # raise Exception
 
     fname0 = os.path.join(projdir,'Preprocessed_static')
 
@@ -92,7 +90,7 @@ __warning__ = "Warning:" + warningstyle("\n  This script should be run after the
 examples = []
 examples.append(["%(prog)s -v DBDIR/153", "Apply preprocessing with default parameters on the project 153 in the database directory DBDIR and print messages (the results will be saved in DBDIR/153/Preprocessed_static.pkl)."])
 examples.append(["%(prog)s -v --json DBDIR/153", "Save results in a json file in addition to the pickle file."])
-examples.append(["%(prog)s --sflag -v DBDIR/036", "Removing syncrhonisation error of the project 36."])
+examples.append(["%(prog)s --sflag -v DBDIR/036", "Remove syncrhonisation errors in the project 36."])
 __example__ = "Some examples of use (change the path seperator '/' to '\\' on Windows platform):" + "".join([examplestyle(x) for x in examples])
 
 
@@ -108,7 +106,7 @@ def main():
     parser.add_argument('-o', '--oflag', dest='oflag', action='store_true', default=False, help="remove outliers")
     parser.add_argument('-t', '--tflag', dest='tflag', action='store_true', default=False, help="apply the preprocessing on the temperature data")
     parser.add_argument('-j', '--jflag', dest='jflag', action='store_true', default=False, help="detect jumps in the deformation data")
-    parser.add_argument('-n', dest='nh', action='store', type=int, default=12, help="gaps (in hour) larger than this value will be marked as nan (default 12)")
+    parser.add_argument('-n', dest='nh', action='store', type=int, default=12, help="gaps (in hour) larger than this value will be marked as nan (default 12)", metavar="int")
     parser.add_argument('-v', '--verbose', dest='verbose', action='count', default=False, help="print messages.")
     parser.add_argument("--json", dest="json", action="store_true", default=False, help="save results in json format")
 
