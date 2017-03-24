@@ -456,15 +456,21 @@ def dim_reduction_bm(func):
             _, U, S = pca(Xvar[:, tidx0:tidx1], nc=None, corrflag=corrflag)  # pca coefficients
             cdim = np.sum(S/S[0] > vthresh)  # reduced dimension
             Xcof = U.T @ Xvar  # coefficients of Xvar
-            Lc, Cvec, Err, Sig = func(Yvar, Xcof[:cdim, :], sigmaq2, sigmar2, x0=x0, p0=p0, smooth=smooth)
-            L0 = []
+            (A, Acov), (Cvec, Ccov), Err, Sig = func(Yvar, Xcof[:cdim, :], sigmaq2, sigmar2, x0=x0, p0=p0, smooth=smooth)
+            L0, C0 = [], []
+            # print(A.shape, Acov.shape)
+            W = U[:, :cdim]  # analysis matrix of subspace basis
+            Wop = Tools.matprod_op_right(W.T, A.shape[1])
             for t in range(Nt):
-                L0.append(Lc[t,] @ U[:, :cdim].T)
+                L0.append(A[t,] @ W.T)
+                C0.append(Wop @ Acov[t,] @ Wop.T)
+                # C0.append(U[:, :cdim] @ Acov[t,] @ U[:, :cdim].T)
             L = np.asarray(L0)
+            Lcov = np.asarray(C0)
         else:
-            L, Cvec, Err, Sig = func(Yvar, Xvar, sigmaq2, sigmar2, x0=x0, p0=p0, smooth=smooth)
+            (L,Lcov), (Cvec,Ccov), Err, Sig = func(Yvar, Xvar, sigmaq2, sigmar2, x0=x0, p0=p0, smooth=smooth)
 
-        return L, Cvec, Err, Sig
+        return (L,Lcov), (Cvec,Ccov), Err, Sig
     return newfunc
 
 
@@ -612,13 +618,13 @@ def multi_linear_regression_bm(Y, X, sigmaq2, sigmar2, x0=0., p0=1., smooth=Fals
     _Kalman = Kalman.Kalman(Y, A, B, G=None, Q=sigmaq2, R=sigmar2, X0=x0, P0=p0)
 
     if smooth:
-        # LXtn, LPtn, LJt, res = _Kalman.smoother()
-        toto, *_ = _Kalman.smoother()
+        LXt, LPt, *_ = _Kalman.smoother()
     else:
-        # LXtt, LPtt, LXtm, LPtm, LEt, LSt, LKt, LmXt, *_ = _Kalman.filter()
-        toto, *_ = _Kalman.filter()
+        LXt, LPt, *_ = _Kalman.filter()
 
-    Xflt = np.asarray(toto)
+    Xflt = np.asarray(LXt)
+    Pflt = np.asarray(LPt)
+    # print(Xflt.shape, Pflt.shape)
     # filtered / smoothed observations
     Yflt = np.sum(B * Xflt.transpose(0,2,1), axis=-1).T  # transpose(0,2,1) is for the computation of matrix-vector product, and .T is to make the second axis the time axis.
     Err = Y - Yflt
@@ -628,10 +634,11 @@ def multi_linear_regression_bm(Y, X, sigmaq2, sigmar2, x0=0., p0=1., smooth=Fals
     Cvec0 = []
     for t in range(Nt):
         V = np.reshape(Xflt[t,], (dimobs, -1))  # state vector reshaped as a matrix
-        Cvec0.append(np.atleast_2d(V[:,-1]))
+        # Cvec0.append(np.atleast_2d(V[:,-1]))
+        Cvec0.append(V[:,-1])
         Ka0.append(V[:,:-1])
-    Cvec = np.squeeze(np.asarray(Cvec0)).T
-    Ka = np.asarray(Ka0)
+    Cvec = np.asarray(Cvec0)
+    Ka = np.asarray(Ka0)  # Ka has shape Nt * dimobs * (dimsys-dimobs)
 
     # # filtered / smoothed observations without the polynomial trend
     # B0 = B[:, :, :-dimobs]
@@ -641,8 +648,8 @@ def multi_linear_regression_bm(Y, X, sigmaq2, sigmar2, x0=0., p0=1., smooth=Fals
     # Xflt = np.squeeze(Xflt).T  # take transpose to make the second axis the time axis
     # Xflt0 = np.squeeze(Xflt0).T
 
-    return Ka, Cvec, Err, Sig
-    # return (Xflt, Ka, Cvec), Yflt0, Err, Sig
+    return (Ka, Pflt[:,:-dimobs,:-dimobs]), (Cvec, Pflt[:,-dimobs:,-dimobs:]), Err, Sig
+    # return Ka, Cvec, Err, Sig
 
 
 def _gp_cov_matrix(Nt, snr2, clen2):
@@ -777,34 +784,41 @@ def deconv_bm(Y0, X0, lag, dord=1, pord=1, sigmaq2=10**-6, sigmar2=10**-1, x0=0.
     regressor = dim_reduction_bm(multi_linear_regression_bm)
 
     # regression
-    Amat, Cvec, Err, Sig = regressor(Yvar, Xvar, sigmaq2, sigmar2, x0, p0, smooth=smooth, sidx=sidx, Ntrn=Ntrn, vthresh=vthresh, corrflag=corrflag)
+    (Amat, Acov), (Cvec,Ccov), Err, Sig = regressor(Yvar, Xvar, sigmaq2, sigmar2, x0, p0, smooth=smooth, sidx=sidx, Ntrn=Ntrn, vthresh=vthresh, corrflag=corrflag)
+    # (Amat, Acov): kernel matrices and covariance matrix
     Amat0 = Amat[:, :, :Amat.shape[-1]-(pord-dord)]  # kernel matrices without polynomial trend
 
-    # prediction method 1: apply kernel matrices directly on raw inputs
-    # this method is theoretically non exact but numerically stable
-    Xcmv = Tools.mts_cumview(X0, lag) # DO NOT remove nans: Xcmv[np.isnan(Xcmv)] = 0, see comments in deconv()
-    Yflt = np.zeros_like(Y0)
-    for t in range(Nt):
-        Yflt[:,t] = Amat0[t,] @ Xcmv[:,t]
-
-    # # prediction method 2: apply kernel matrices on differentiated inputs
-    # # then re-integrate. This method is theoretically exact but numerically unstable when dord>=2
-    # Xcmv = Xvar0
+    # # prediction method 1: apply kernel matrices directly on raw inputs
+    # # this method is theoretically non exact but numerically stable
+    # Xcmv = Tools.mts_cumview(X0, lag) # DO NOT remove nans: Xcmv[np.isnan(Xcmv)] = 0, see comments in deconv()
     # Yflt = np.zeros_like(Y0)
     # for t in range(Nt):
     #     Yflt[:,t] = Amat0[t,] @ Xcmv[:,t]
-    # # integration to obtain the final result
-    # if dord > 0:
-    #     Yflt[np.isnan(Yflt)] = 0
-    #     for n in range(dord):
-    #         Yflt = np.cumsum(Yflt,axis=-1)
 
+    # prediction method 2: apply kernel matrices on differentiated inputs
+    # then re-integrate. This method is theoretically exact but numerically unstable when dord>=2
+    Xcmv = Xvar0
+    Yflt = np.zeros_like(Y0)
+    for t in range(Nt):
+        # Yflt[:,t] = Amat0[t,] @ Xcmv[:,t] + Cvec[t]
+        Yflt[:,t] = Amat0[t,] @ Xcmv[:,t]
+    # integration to obtain the final result
     if dord > 0:
-        Yprd = Yflt - Tools.polyprojection(Yflt, deg=dord-1, axis=-1)  # projection \Psi^\dagger \Psi
-    else:
-        Yprd = Yflt
+        Yflt[np.isnan(Yflt)] = 0
+        for n in range(dord):
+            Yflt = np.cumsum(Yflt,axis=-1)
 
-    return Yprd, (Amat, Cvec, Err, Sig)
+    # prediction: projection \Psi^\dagger \Psi
+    # Remark: Yprd has shape Y0.shape[1]*Nt
+    Yprd = Yflt - Tools.polyprojection(Yflt, deg=dord-1, axis=-1) if dord > 0 else Yflt
+
+    # covariance matrix
+    Ycov = np.zeros((Nt,Y0.shape[0],Y0.shape[0]))
+    for t in range(Nt):
+        M = np.kron(np.eye(Y0.shape[0]), Xcmv[:,t])
+        Ycov[t,:,:] = M @ Acov[t,] @ M.T
+
+    return (Yprd,Ycov), ((Amat,Acov), (Cvec,Ccov), Err, Sig)
 
 
 def ssproj(X0, cdim=1, vthresh=None, corrflag=False, drophead=0, percent=1.):
@@ -837,10 +851,16 @@ def ssproj(X0, cdim=1, vthresh=None, corrflag=False, drophead=0, percent=1.):
 
     _, U, S = pca(X2, corrflag=corrflag)
     # subspace dimension
-    if vthresh is not None:
-        cdim = np.sum(S/S[0] > vthresh)
-        if cdim == 0:
-            raise ValueError("cdim==0, reduce the value of vthresh")
+    if cdim is None: # if cdim is not given, use vthresh to determine it
+        # toto = S/S[0]
+        # cdim = np.sum(toto > vthresh)
+        toto = 1-np.cumsum(S/np.sum(S))
+        cdim = np.where(toto < vthresh)[0][0]+1
+        print(cdim,toto)
+        # cdim = np.sum(S/S[0] > vthresh)
+        # cdim = np.sum(S/np.sum(S) > vthresh)
+    else:  # if cdim is given, vthresh has no effect
+        pass
 
     # projection
     if cdim > 0:

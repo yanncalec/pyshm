@@ -208,11 +208,11 @@ def preprocess_plot(figdir, Sdata, marknan=True, markjump=True, html=False):
 # Shorthand for styles
 xobs_style = {'color': 'red', 'linewidth': 1, 'alpha':0.75, 'label':'Temperature: observation'}
 yobs_style = {'color': 'blue', 'linewidth': 1, 'alpha':0.75, 'label':'Elongation: observation'}
-yprd_style = {'color': 'orange', 'linewidth': 1, 'alpha':0.5, 'label':'Elongation: thermal prediction'}
+yprd_style = {'color': 'orange', 'linewidth': 1, 'alpha':0.75, 'label':'Elongation: thermal prediction'}
 # aprd_style = {'color': 'r', 'linewidth': 2, 'alpha':0.8, 'label':'Elongation: thermal contribution'}
 # bprd_style = {'color': 'b', 'linewidth': 2, 'alpha':0.8, 'label':'Elongation: non-thermal contribution'}
 yerr_style = {'color': 'darkcyan', 'linewidth': 2, 'alpha':1., 'label':'Elongation: thermal residual'}
-yssp_style = {'color': 'green', 'linewidth': 1, 'alpha':0.5, 'label':'Elongation: non-thermal subspace projection'}
+yssp_style = {'color': 'green', 'linewidth': 1, 'alpha':0.75, 'label':'Elongation: non-thermal subspace projection'}
 yerp_style = {'color': 'darkblue', 'linewidth': 2, 'alpha':1., 'label':'Elongation: final residual'}
 
 ys = {'color': 'black', 'linewidth': 2, 'alpha':1., 'label':'Elongation: residual'}
@@ -470,23 +470,20 @@ def deconv_plot_static_kernel(Krnl):
     return fig, axes
 
 
-def mean_dynamic_kernel(Krnl):
-    """Calculate mean value (of different groups) of the dynamic kernel of
-    deconvolution analysis.
-
-    """
-
-    Ng = len(Krnl[0]) # number of groups
-    Nt = len(Krnl)  # duration
-    A = []
-
-    for g in range(Ng):
-        toto = np.asarray([K[g] for K in Krnl])
-        A.append(np.mean(toto, axis=-1).transpose(2,1,0)[0])
-    return A
+# def mean_dynamic_kernel(Krnl):
+#     """Calculate mean value (of different groups) of the dynamic kernel of
+#     deconvolution analysis.
+#     """
+#     Ng = len(Krnl[0]) # number of groups
+#     Nt = len(Krnl)  # duration
+#     A = []
+#     for g in range(Ng):
+#         toto = np.asarray([K[g] for K in Krnl])
+#         A.append(np.mean(toto, axis=-1).transpose(2,1,0)[0])
+#     return A
 
 
-def deconv_plot_dynamic_kernel(Krnl, Tidx, ncoef=3):
+def deconv_plot_dynamic_kernel(Krnl, Kcov, Tidx, ncoef=10):
     """Plot mean value of the dynamic kernel.
 
     Args:
@@ -497,15 +494,22 @@ def deconv_plot_dynamic_kernel(Krnl, Tidx, ncoef=3):
     import matplotlib.pyplot as plt
     # import numpy as np
 
-    As = mean_dynamic_kernel(Krnl)
-    fig, axes = plt.subplots(len(As),1,figsize=(20, 5*len(As)))
-
-    for g, A in enumerate(As):
-        axa = axes[g] if len(As)>1 else axes
-        for c in range(ncoef):
-            axa.plot(Tidx[:A.shape[1]], A[c,:], label='coefficient {}'.format(c))
+    Krnl_mean = np.mean(Krnl, axis=0)
+    fig, axa = plt.subplots(1,1,figsize=(20, 5))
+    for c in range(ncoef):
+        axa.plot(Tidx, Krnl[c,:], label='coefficient {}'.format(c))
         axa.legend()
-    return fig, axes
+    return fig, axa
+
+    # As = mean_dynamic_kernel(Krnl)
+    # fig, axes = plt.subplots(len(As),1,figsize=(20, 5*len(As)))
+
+    # for g, A in enumerate(As):
+    #     axa = axes[g] if len(As)>1 else axes
+    #     for c in range(ncoef):
+    #         axa.plot(Tidx[:A.shape[1]], A[c,:], label='coefficient {}'.format(c))
+    #     axa.legend()
+    # return fig, axes
 
 
 __script__ = __doc__
@@ -616,7 +620,7 @@ def main():
 
         # load results of analysis
         Res = load_result_of_analysis(options.infile)
-        Locations = list(Res['Yprd'].keys())  # list of sensors
+        Locations = list(Res['Yprd'].keys())  # list of active sensors
         idx = Res["func_name"].find('_')
         analyse_type = Res["func_name"][:idx]  # type of analysis of the result
         Yprd = Res['Yprd']  # predictions
@@ -706,7 +710,7 @@ def main():
             pca_plot(Yerr, figdir)
 
         # per sensor plot
-        for loc in Locations:
+        for n, loc in enumerate(Locations):
             figdir1 = os.path.join(figdir, '{}'.format(loc))
             try:
                 os.makedirs(figdir1)
@@ -757,20 +761,26 @@ def main():
                 mpld3.save_html(fig, fname+'.html')
             plt.close(fig)
 
-            # if analyse_type.upper() == "DECONV":
-            #     # Plot kernels
-            #     if staticflag:
-            #         fig, axes = deconv_plot_static_kernel(Res['Krnl'][str(loc)])  # str(loc) since in Json file keys of a dictionary must be string
-            #         # plt.suptitle('Location {}, {} component'.format(loc, component), position=(0.5,1.1),fontsize=20)
-            #         plt.tight_layout()
-            #         fname = os.path.join(figdir, 'Kernel_static')
-            #         fig.savefig(fname+'.pdf', bbox_inches='tight')
-            #     else:
-            #         fig, axes = deconv_plot_dynamic_kernel(Res['Krnl'][str(loc)], Res['Xcpn'].index)
-                #         plt.suptitle('Location {}, {} component'.format(loc, component), position=(0.5,1.1),fontsize=20)
-            #         plt.tight_layout()
-            #         fname = os.path.join(figdir, 'Kernel_dynamic')
-            #         fig.savefig(fname+'.pdf', bbox_inches='tight')
+            # Plot kernels
+            if staticflag:
+                Amat = Res['Amat'][n,:]
+                nx = len(Locations)
+                # lag = len(Amat) / nx
+                fig, axa = plt.subplots(1,1,figsize=(10,5))
+                axa.plot(np.mean(Amat.reshape((-1,nx)), axis=-1)) # [::nx])
+                axa.set_title('Location {}: convolution kernel'.format(loc))
+                # fig, axes = deconv_plot_static_kernel(Amat)  # str(loc) since in Json file keys of a dictionary must be string
+                # # plt.suptitle('Location {}, {} component'.format(loc, component), position=(0.5,1.1),fontsize=20)
+                # plt.tight_layout()
+                fname = os.path.join(figdir1, 'Kernel_static')
+                fig.savefig(fname+'.pdf', bbox_inches='tight')
+            else:
+                Amat, Acov = Res['Amat'][:,n,:].T, Res['Acov'][:,n,:].T
+                fig, axa = deconv_plot_dynamic_kernel(Amat, Acov, Tidx)
+                axa.set_title('Location {}: evolution of convolution kernel'.format(loc))
+                plt.tight_layout()
+                fname = os.path.join(figdir1, 'Kernel_dynamic')
+                fig.savefig(fname+'.pdf', bbox_inches='tight')
     else:
         raise TypeError('Unknown command')
 

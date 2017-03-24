@@ -6,9 +6,14 @@ if [ $# -lt 1 ]; then
     exit 1
 else
     . "$1"  # source configuration file
-    if [ ! $?==0 ]; then
+    if [ ! $?==0 ]; then  # error in reading configuration file
         exit 1
     fi
+fi
+
+if [ -z $PID ]; then
+    echo "Invalid PID" >&2
+    exit 1
 fi
 
 DBDIR=$HOME/Data  # Local database directory
@@ -44,13 +49,15 @@ opts=""
 if [ ! -z $ALOCS ]; then opts+=" --alocs $ALOCS"; fi
 if [ ! -z $TIME0 ]; then opts+=" --time0 $TIME0"; fi
 if [ ! -z $TIME1 ]; then opts+=" --time1 $TIME1"; fi
-# if [ ! -z $KZORD ]; then opts+=" --kzord $KZORD"; fi
+if [ ! -z $KZORD ]; then opts+=" --kzord $KZORD"; fi
+if [ ! -z $MWSIZE ]; then opts+=" --mwsize $MWSIZE"; fi
 if [ ! -z $MWMETHOD ]; then opts+=" --mwmethod $MWMETHOD"; fi
 # if [ ! -z $COMPONENT ]; then opts+=" --component $COMPONENT"; fi
-if [ ! -z $SIDX ]; then opts+=" --sidx $SIDX"; fi
-if [ ! -z $NTRN ]; then opts+=" --Ntrn $NTRN"; fi
+if [ ! -z $LAG ]; then opts+=" --lag $LAG"; fi
 if [ ! -z $VTHRESH ]; then opts+=" --vthresh $VTHRESH"; fi
 # if [ $CORRFLAG == "true" ]; then opts+=" --corrflag"; fi
+if [ ! -z $SIDX ]; then opts+=" --sidx $SIDX"; fi
+if [ ! -z $NTRN ]; then opts+=" --Ntrn $NTRN"; fi
 
 # options for analysis
 opts_an=""
@@ -78,6 +85,7 @@ for SUBCOMMAND in ${SUBCOMMANDS[@]}; do
         if [ $SUBCOMMAND == "ls" ]; then
             if [ ! -z $SNR2 ]; then opts+=" --snr2 $SNR2"; fi
             if [ ! -z $CLEN2 ]; then opts+=" --clen2 $CLEN2"; fi
+            # echo $opts
         elif [ $SUBCOMMAND == "bm" ]; then
             if [ ! -z $SIGMAQ2 ]; then opts+=" --sigmaq2 $SIGMAQ2"; fi
             if [ ! -z $SIGMAR2 ]; then opts+=" --sigmar2 $SIGMAR2"; fi
@@ -103,7 +111,8 @@ for SUBCOMMAND in ${SUBCOMMANDS[@]}; do
         eval "$cmd" #| tee $LOGFILE
         echo ""
 
-        cmd='osmos_plot analyse "$OUTFILE" $opts_pl --html -v'
+        cmd='osmos_plot analyse "$OUTFILE" $opts_pl -v'
+        # cmd='osmos_plot analyse "$OUTFILE" $opts_pl --html -v'
         # # echo "$cmd"
         eval "$cmd"
         echo ""

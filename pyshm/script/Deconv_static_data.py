@@ -102,26 +102,62 @@ def _Deconv_static_data(Xcpn, Ycpn, options):
     if options.verbose:
         print("Deconvolution of the \'{}\' component...".format(options.component.upper()))
 
-    Yprd0 = []  # final prediction from external inputs
     # Proceed by sensor, although it is possible to use full vectorial version
-    for n, aloc in enumerate(options.alocs):
-        if options.verbose:
-            print("\tProcessing the location {}...".format(aloc))
-        yvar = Yvar[[n],:]
-        if staticflag:
-            yprd, *_ = Stat.deconv(yvar, Xvar, options.lag, dord=options.dord, pord=options.pord, snr2=options.snr2, clen2=options.clen2, dspl=options.dspl, sidx=options.sidx, Ntrn=options.Ntrn, vthresh=options.vthresh, corrflag=options.corrflag, Nexp=options.Nexp)
-            # (Amat, Cvec, Err, Sig) = res
-        else:
-            smoothflag = options.kalman.upper=="SMOOTHER"
-            yprd, *_ = Stat.deconv_bm(Yvar[[n],:], Xvar, options.lag, dord=options.dord, pord=options.pord, sigmaq2=options.sigmaq2, sigmar2=options.sigmar2, x0=0., p0=1., smooth=smoothflag, sidx=options.sidx, Ntrn=options.Ntrn, vthresh=options.vthresh, corrflag=options.corrflag)
-        Yprd0.append(yprd[0])
+    # for n, aloc in enumerate(options.alocs):
+    #     if options.verbose:
+    #         print("\tProcessing the location {}...".format(aloc))
+    #     if staticflag:
+    #         yprd, (amat, *_) = Stat.deconv(Yvar[[n],:], Xvar, options.lag, dord=options.dord, pord=options.pord, snr2=options.snr2, clen2=options.clen2, dspl=options.dspl, sidx=options.sidx, Ntrn=options.Ntrn, vthresh=options.vthresh, corrflag=options.corrflag, Nexp=options.Nexp)
+    #         Amat[aloc] = amat
+    #     else:
+    #         smoothflag = options.kalman.upper=="SMOOTHER"
+    #         (yprd,ycov), ((amat, acov), *_) = Stat.deconv_bm(Yvar[[n],:], Xvar, options.lag, dord=options.dord, pord=options.pord, sigmaq2=options.sigmaq2, sigmar2=options.sigmar2, x0=0., p0=1., smooth=smoothflag, sidx=options.sidx, Ntrn=options.Ntrn, vthresh=options.vthresh, corrflag=options.corrflag)
+    #         Amat[aloc] = pd.DataFrame(np.squeeze(amat), columns=options.alocs, index=Tidx)
+    #         Acov[aloc] = pd.DataFrame(np.asarray([np.diag(P) for P in acov]), columns=options.alocs, index=Tidx)
+    #         # print(amat.shape, cvec.shape, err.shape, sig.shape)
+    #         Yprd0.append(yprd[0])
+    #         Ycov0.append(ycov[0])
+    if staticflag:
+        Yprd0, (Amat, *_) = Stat.deconv(Yvar, Xvar, options.lag, dord=options.dord, pord=options.pord, snr2=options.snr2, clen2=options.clen2, dspl=options.dspl, sidx=options.sidx, Ntrn=options.Ntrn, vthresh=options.vthresh, corrflag=options.corrflag, Nexp=options.Nexp)
 
-    Yprd0 = np.vstack(Yprd0)  # prediction
-    Yprd = pd.DataFrame(Yprd0.T, columns=options.alocs, index=Tidx)
-    Yerr0 = Yvar - Yprd0  # error of prediction
-    Yerr = pd.DataFrame(Yerr0.T, columns=options.alocs, index=Tidx)
+        Yprd = pd.DataFrame(Yprd0.T, columns=options.alocs, index=Tidx)
+        Yerr0 = Yvar - Yprd0  # error of prediction
+        Yerr = pd.DataFrame(Yerr0.T, columns=options.alocs, index=Tidx)
+        Resdic = {"Yprd":Yprd, "Yerr":Yerr, "Amat":Amat}
+    else:
+        smoothflag = options.kalman.upper=="SMOOTHER"
+        # # full-vectorial version: time and space consuming
+        # (Yprd0,Ycov), ((Amat,Acov), *_) = Stat.deconv_bm(Yvar, Xvar, options.lag, dord=options.dord, pord=options.pord, sigmaq2=options.sigmaq2, sigmar2=options.sigmar2, x0=0., p0=1., smooth=smoothflag, sidx=options.sidx, Ntrn=options.Ntrn, vthresh=options.vthresh, corrflag=options.corrflag)
+        # Yerr0 = Yvar - Yprd0  # error of prediction
+        # Yprd = pd.DataFrame(Yprd0.T, columns=options.alocs, index=Tidx)
+        # Yerr = pd.DataFrame(Yerr0.T, columns=options.alocs, index=Tidx)
 
-    return {"Yprd":Yprd, "Yerr":Yerr}
+        # semi-vectorial version: we procede sensor-by-sensor
+        Yprd0 = []  # final prediction from external inputs
+        Ycov0 = []  # covariance of prediction
+        Amat0 = []  # convolution matrices, or the thermal law
+        Acov0 = []  # covariance matrix of Amat
+        for n, aloc in enumerate(options.alocs):
+            if options.verbose:
+                print("\tProcessing the location {}...".format(aloc))
+            (yprd,ycov), ((amat,acov), *_) = Stat.deconv_bm(Yvar[[n],:], Xvar, options.lag, dord=options.dord, pord=options.pord, sigmaq2=options.sigmaq2, sigmar2=options.sigmar2, x0=0., p0=1., smooth=smoothflag, sidx=options.sidx, Ntrn=options.Ntrn, vthresh=options.vthresh, corrflag=options.corrflag)
+            # print(yprd.shape, ycov.shape, amat.shape, acov.shape)
+            Yprd0.append(yprd)
+            Ycov0.append(ycov)
+            Amat0.append(np.squeeze(amat))
+            Acov0.append(np.asarray([np.diag(a) for a in acov]))
+        Yprd = np.squeeze(np.asarray(Yprd0))  # shape of Yprd: len(alocs)*Nt
+        Ycov = np.squeeze(np.asarray(Ycov0))  # shape of Ycov: len(alocs)*Nt
+        Amat = np.asarray(Amat0).transpose((1,0,2))  # shape of Amat: Nt*len(alocs)*(len(alocs)*lag)
+        Acov = np.asarray(Acov0).transpose((1,0,2))  # shape of Acov: Nt*len(alocs)*(len(alocs)*lag)
+        Yerr = Yvar - Yprd  # error of prediction
+        # print(Yprd.shape, Ycov.shape, Amat.shape, Acov.shape)
+        Resdic = {"Yprd":pd.DataFrame(Yprd.T, columns=options.alocs, index=Tidx),
+                "Ycov":Ycov,
+                "Yerr": pd.DataFrame(Yerr.T, columns=options.alocs, index=Tidx),
+                "Amat":Amat,
+                "Acov":Acov}
+    return Resdic
 
 
 # __all__ = ["Deconv_static_data", "Options"]
@@ -191,7 +227,7 @@ def main():
         ddata_opts = parser.add_argument_group("Component decomposition options")
         ddata_opts.add_argument("--mwmethod", dest="mwmethod", type=str, default="mean", help="type of moving window estimator for decomposition of component: mean (default), median.", metavar="string")
         ddata_opts.add_argument("--mwsize", dest="mwsize", type=int, default=24, help="length of the moving window (default=24).", metavar="integer")
-        ddata_opts.add_argument("--kzord", dest="kzord", type=int, default=2, help="order of filter (default=2).", metavar="integer")
+        ddata_opts.add_argument("--kzord", dest="kzord", type=int, default=2, help="order of moving window filter (default=2).", metavar="integer")
 
         model_opts = parser.add_argument_group("Model options")
         model_opts.add_argument("--lag", dest="lag", type=int, default=12, help="length of the convolution kernel (default=12)", metavar="integer")
@@ -217,7 +253,7 @@ def main():
 
     kalman_opts = parser_bm.add_argument_group("Kalman filter options (bm model only)")
     kalman_opts.add_argument("--sigmaq2", dest="sigmaq2", type=float, default=10**-6, help="variance of transition noise (default=1e-6).", metavar="float")
-    kalman_opts.add_argument("--sigmar2", dest="sigmar2", type=float, default=10**1, help="variance of observation noise (default=10).", metavar="float")
+    kalman_opts.add_argument("--sigmar2", dest="sigmar2", type=float, default=10**-3, help="variance of observation noise (default=1e-3).", metavar="float")
     kalman_opts.add_argument("--kalman", dest="kalman", type=str, default="smoother", help="method of estimation of Kalman filter: filter, smoother (default).", metavar="string")
 
     options = mainparser.parse_args()
@@ -252,7 +288,9 @@ def main():
 
         # create a subfolder for output
         options.func_name = __name__[__name__.rfind('.')+1:]
-        outdir = os.path.join(options.outdir, options.func_name, "model[{}]_component[{}]_alocs[{}]".format(options.subcommand.upper(), options.component.upper(), options.alocs))
+        outdir = os.path.join(options.outdir, options.func_name, "model[{}]_component[{}]_alocs[{}]_[from_{}_to_{}]".format(options.subcommand.upper(), options.component.upper(), options.alocs, options.time0, options.time1))
+        if options.subcommand.upper() == "BM":
+            outdir += "_sigmaq2[{:.1e}]_sigmar2[{:.1e}]".format(options.sigmaq2, options.sigmar2)
         outfile = os.path.join(outdir, "Results")
 
         # No handle of exceptions so that any exception will result a system exit in the terminal.

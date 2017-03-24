@@ -163,29 +163,29 @@ def static_data_analysis_template(func):
         resdic = func(Xcpn, Ycpn, options, *args, **kwargs)  # side effect on options
         resdic.update({'func_name':options.func_name, 'Xcpn':Xcpn, 'Ycpn':Ycpn, 'Midx':Midx, 'algo_options':vars(options)})
 
-        # # Save the results in pickle format
-        # with open(outfile0+'.pkl', 'wb') as fp:
-        #     # json.dump(resdic, fp, sort_keys=True)
-        #     pickle.dump(resdic, fp)
-        # if options.verbose:
-        #     print('\nResults saved in {}'.format(outfile0+'.pkl'))
-
-        # Save the results in json format:
-        # some non-standard objects might be removed, and non-float values will be casted as float
-        resjson = to_json(resdic, verbose=options.verbose)
-        # make the output directory if necessary
+        # Make the output directory if necessary
         idx = outfile0.rfind(os.path.sep)
         outdir = outfile0[:idx]
         try:
             os.makedirs(outdir)
         except OSError:
             pass
-        with open(outfile0+'.json', 'w') as fp:
-            json.dump(resjson, fp, cls=MyEncoder)
-        if options.verbose:
-            print('Results saved in\n{}'.format(outfile0+'.json'))
 
-        return resdic, resjson
+        # Save the results in pickle format
+        outfile = outfile0+'.pkl'
+        with open(outfile, 'wb') as fp:
+            pickle.dump(resdic, fp)
+        # # Save the results in json format:
+        # # some non-standard objects might be removed, and non-float values will be casted as float
+        # resjson = to_json(resdic, verbose=options.verbose)
+        # outfile = outfile0+'.json'
+        # with open(outfile, 'w') as fp:
+        #     json.dump(resjson, fp, cls=MyEncoder)
+
+        if options.verbose:
+            print('Results saved in\n{}'.format(outfile))
+
+        return resdic
     return newfunc
 
 

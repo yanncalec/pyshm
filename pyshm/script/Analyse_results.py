@@ -7,7 +7,7 @@ import sys, os, argparse
 import numpy as np
 import scipy as sp
 import pandas as pd
-import json
+import pickle, json
 from pyshm import OSMOS, Tools, Stat
 from pyshm.script import static_data_analysis_template, examplestyle, warningstyle, load_result_of_analysis, MyEncoder, to_json
 from joblib import Parallel, delayed
@@ -70,8 +70,8 @@ def main():
     mainparser.add_argument('--drophead', dest='drophead', type=int, default=3*24*30, help='drop head of input data in computation of subspace projection (default=3*24*30).', metavar='integer')
 
     proj_opts = mainparser.add_argument_group('Options for subspace projection')  # projection
-    proj_opts.add_argument('--cdim', dest='cdim', type=int, default=None, help='dimension of the subspace (default=None), no subspace projection if set to 0, if given --vthresh will be ignored ', metavar='integer')
-    proj_opts.add_argument('--vthresh', dest='vthresh', type=float, default=0.5, help='relative threshold for subspace projection (default=0.5).', metavar='float')
+    proj_opts.add_argument('--cdim', dest='cdim', type=int, default=None, help='dimension of the subspace (default=None), no subspace projection if set to 0, if given vthresh will be ignored ', metavar='integer')
+    proj_opts.add_argument('--vthresh', dest='vthresh', type=float, default=0.1, help='relative threshold for subspace projection (default=0.1).', metavar='float')
     proj_opts.add_argument("--corrflag", dest="corrflag", action="store_true", default=False, help="use correlation matrix in subspace projection.")
 
     lstat_opts = mainparser.add_argument_group('Options for local statistics')  # local statistics
@@ -166,12 +166,11 @@ def main():
     else:
         Hexp = Emptydf.copy()
 
-    outfile = options.infile if options.overwrite else os.path.join(outdir, 'Analysis') + '.json'
+    outfile = options.infile if options.overwrite else os.path.join(outdir, 'Analysis') + '.pkl'
     Res.update({'Yssp':Yssp, 'cdim':options.cdim, 'Yerp':Yerp, 'Scof':Scof, 'Merp':Merp, 'Serp':Serp, 'Nerp':Nerp, 'Merr':Merr, 'Serr':Serr, 'Nerr':Nerr, 'Hexp':Hexp})
 
-    resjson = to_json(Res, verbose=options.verbose)
-    with open(outfile, 'w') as fp:
-        json.dump(resjson, fp, cls=MyEncoder)
+    with open(outfile, 'wb') as fp:
+        pickle.dump(Res, fp)
 
     if options.verbose:
         print('Results saved in\n{}'.format(outfile))
