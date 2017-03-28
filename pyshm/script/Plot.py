@@ -5,7 +5,7 @@
 
 import sys, os, argparse
 import numpy as np
-import scipy as sp
+import scipy
 import pandas as pd
 import json
 from pyshm import OSMOS, Tools, Stat
@@ -31,7 +31,7 @@ def detect_periods_of_instability(hexp, hthresh, hgap=0, mask=None):
     # if hgap > 0:
     #     # with post-processing
     #     hidc = Tools.L_filter(np.int32(hexp>hthresh), wsize=hgap)>0  # non linear filter, slower
-    #     # hidc = sp.signal.convolve(hexp>ithresh, np.ones(options.hgap, dtype=bool), mode="same")>0
+    #     # hidc = scipy.signal.convolve(hexp>ithresh, np.ones(options.hgap, dtype=bool), mode="same")>0
     # else:
     #     # no post-processing
     hidc = hexp>hthresh
@@ -483,7 +483,29 @@ def deconv_plot_static_kernel(Krnl):
 #     return A
 
 
-def deconv_plot_dynamic_kernel(Krnl, Kcov, Tidx, ncoef=10):
+def deconv_plot_dynamic_kernel(Krnl, Tidx, ncoef=10):
+    """Plot mean value of the dynamic kernel.
+
+    Args:
+        Krnl (list): Krnl[t][g][n] is the n-th kernel matrix (of shape 1-by-?)
+        of the group g at the time index t.
+
+    """
+    import matplotlib.pyplot as plt
+    # import numpy as np
+
+    Krnl_mean = np.mean(Krnl, axis=0)
+
+    fig, axa = plt.subplots(1,1,figsize=(20, 5))
+    for c in range(ncoef):
+        axa.plot(Tidx, Krnl[c,:], label='coefficient {}'.format(c))
+        axa.legend()
+    axa.plot(Tidx, Krnl_mean, label='mean coefficient')
+    axa.legend(loc='upper right', fancybox=True, framealpha=0.5)
+    return fig, axa
+
+
+def deconv_plot_mean_dynamic_kernel(Krnl, Kcov, Tidx, pval=0.1):
     """Plot mean value of the dynamic kernel.
 
     Args:
@@ -496,9 +518,16 @@ def deconv_plot_dynamic_kernel(Krnl, Kcov, Tidx, ncoef=10):
 
     Krnl_mean = np.mean(Krnl, axis=0)
     fig, axa = plt.subplots(1,1,figsize=(20, 5))
-    for c in range(ncoef):
-        axa.plot(Tidx, Krnl[c,:], label='coefficient {}'.format(c))
-        axa.legend()
+    axa.plot(Tidx, Krnl_mean, label='mean coefficient')
+    if pval > 0:
+        a = scipy.special.erfinv(pval) * np.sqrt(2)  #
+        Kcov_mean = np.sum(Kcov)/(Kcov.shape[0])**2
+        v = a * np.sqrt(Kcov_mean)
+        y1 = Krnl_mean - v
+        y2 = Krnl_mean + v
+        axa.fill_between(Tidx,y1,y2=y2)
+
+    axa.legend(loc='upper right', fancybox=True, framealpha=0.5)
     return fig, axa
 
     # As = mean_dynamic_kernel(Krnl)
@@ -775,11 +804,17 @@ def main():
                 fname = os.path.join(figdir1, 'Kernel_static')
                 fig.savefig(fname+'.pdf', bbox_inches='tight')
             else:
-                Amat, Acov = Res['Amat'][:,n,:].T, Res['Acov'][:,n,:].T
-                fig, axa = deconv_plot_dynamic_kernel(Amat, Acov, Tidx)
+                Amat, Acov = Res['Amatc'][:,n,:].T, Res['Acovc'][:,n,:].T
+                # fig, axa = deconv_plot_dynamic_kernel(Amat, Acov, Tidx)
+                # axa.set_title('Location {}: evolution of convolution kernel'.format(loc))
+                # plt.tight_layout()
+                # fname = os.path.join(figdir1, 'Kernel_dynamic')
+                # fig.savefig(fname+'.pdf', bbox_inches='tight')
+
+                fig, axa = deconv_plot_mean_dynamic_kernel(Amat, Acov, Tidx, pval=0.00001)
                 axa.set_title('Location {}: evolution of convolution kernel'.format(loc))
                 plt.tight_layout()
-                fname = os.path.join(figdir1, 'Kernel_dynamic')
+                fname = os.path.join(figdir1, 'Kernel_dynamic_mean')
                 fig.savefig(fname+'.pdf', bbox_inches='tight')
     else:
         raise TypeError('Unknown command')

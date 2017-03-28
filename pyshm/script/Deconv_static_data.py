@@ -118,14 +118,14 @@ def _Deconv_static_data(Xcpn, Ycpn, options):
     #         Yprd0.append(yprd[0])
     #         Ycov0.append(ycov[0])
     if staticflag:
-        Yprd0, (Amat, *_) = Stat.deconv(Yvar, Xvar, options.lag, dord=options.dord, pord=options.pord, snr2=options.snr2, clen2=options.clen2, dspl=options.dspl, sidx=options.sidx, Ntrn=options.Ntrn, vthresh=options.vthresh, corrflag=options.corrflag, Nexp=options.Nexp)
+        Yprd0, (Amat, *_), Amatc = Stat.deconv(Yvar, Xvar, options.lag, dord=options.dord, pord=options.pord, snr2=options.snr2, clen2=options.clen2, dspl=options.dspl, sidx=options.sidx, Ntrn=options.Ntrn, vthresh=options.vthresh, corrflag=options.corrflag, Nexp=options.Nexp)
 
         Yprd = pd.DataFrame(Yprd0.T, columns=options.alocs, index=Tidx)
         Yerr0 = Yvar - Yprd0  # error of prediction
         Yerr = pd.DataFrame(Yerr0.T, columns=options.alocs, index=Tidx)
-        Resdic = {"Yprd":Yprd, "Yerr":Yerr, "Amat":Amat}
+        Resdic = {"Yprd":Yprd, "Yerr":Yerr, "Amat":Amat, "Amatc":Amatc}
     else:
-        smoothflag = options.kalman.upper=="SMOOTHER"
+        smoothflag = options.kalman.upper() == "SMOOTHER"
         # # full-vectorial version: time and space consuming
         # (Yprd0,Ycov), ((Amat,Acov), *_) = Stat.deconv_bm(Yvar, Xvar, options.lag, dord=options.dord, pord=options.pord, sigmaq2=options.sigmaq2, sigmar2=options.sigmar2, x0=0., p0=1., smooth=smoothflag, sidx=options.sidx, Ntrn=options.Ntrn, vthresh=options.vthresh, corrflag=options.corrflag)
         # Yerr0 = Yvar - Yprd0  # error of prediction
@@ -134,29 +134,27 @@ def _Deconv_static_data(Xcpn, Ycpn, options):
 
         # semi-vectorial version: we procede sensor-by-sensor
         Yprd0 = []  # final prediction from external inputs
-        Ycov0 = []  # covariance of prediction
-        Amat0 = []  # convolution matrices, or the thermal law
-        Acov0 = []  # covariance matrix of Amat
+        # Amat0 = []  # convolution matrices, or the thermal law
+        Amatc0 = []  # reduced convolution matrices, or the thermal law
+        Acovc0 = []  # covariance matrix of Amatc
         for n, aloc in enumerate(options.alocs):
             if options.verbose:
                 print("\tProcessing the location {}...".format(aloc))
-            (yprd,ycov), ((amat,acov), *_) = Stat.deconv_bm(Yvar[[n],:], Xvar, options.lag, dord=options.dord, pord=options.pord, sigmaq2=options.sigmaq2, sigmar2=options.sigmar2, x0=0., p0=1., smooth=smoothflag, sidx=options.sidx, Ntrn=options.Ntrn, vthresh=options.vthresh, corrflag=options.corrflag)
+            yprd, ((amat,acov), (cvec,ccov), err, sig), (amatc,acovc) = Stat.deconv_bm(Yvar[[n],:], Xvar, options.lag, dord=options.dord, pord=options.pord, sigmaq2=options.sigmaq2, sigmar2=options.sigmar2, x0=0., p0=1., smooth=smoothflag, sidx=options.sidx, Ntrn=options.Ntrn, vthresh=options.vthresh, cdim=options.cdim)
             # print(yprd.shape, ycov.shape, amat.shape, acov.shape)
             Yprd0.append(yprd)
-            Ycov0.append(ycov)
-            Amat0.append(np.squeeze(amat))
-            Acov0.append(np.asarray([np.diag(a) for a in acov]))
+            # Amat0.append(np.squeeze(amat))
+            Amatc0.append(np.squeeze(amatc))
+            Acovc0.append(np.asarray([np.diag(a) for a in acovc]))
         Yprd = np.squeeze(np.asarray(Yprd0))  # shape of Yprd: len(alocs)*Nt
-        Ycov = np.squeeze(np.asarray(Ycov0))  # shape of Ycov: len(alocs)*Nt
-        Amat = np.asarray(Amat0).transpose((1,0,2))  # shape of Amat: Nt*len(alocs)*(len(alocs)*lag)
-        Acov = np.asarray(Acov0).transpose((1,0,2))  # shape of Acov: Nt*len(alocs)*(len(alocs)*lag)
+        # Amat = np.asarray(Amat0).transpose((1,0,2))  # shape of Amat: Nt*len(alocs)*(len(alocs)*lag)
+        Amatc = np.asarray(Amatc0).transpose((1,0,2))  # shape of Amat: Nt*len(alocs)*(len(alocs)*lag)
+        Acovc = np.asarray(Acovc0).transpose((1,0,2))  # shape of Acov: Nt*len(alocs)*(len(alocs)*lag)
         Yerr = Yvar - Yprd  # error of prediction
         # print(Yprd.shape, Ycov.shape, Amat.shape, Acov.shape)
         Resdic = {"Yprd":pd.DataFrame(Yprd.T, columns=options.alocs, index=Tidx),
-                "Ycov":Ycov,
-                "Yerr": pd.DataFrame(Yerr.T, columns=options.alocs, index=Tidx),
-                "Amat":Amat,
-                "Acov":Acov}
+                    "Yerr": pd.DataFrame(Yerr.T, columns=options.alocs, index=Tidx),
+                    "Amatc":Amatc, "Acovc":Acovc}
     return Resdic
 
 
@@ -230,7 +228,7 @@ def main():
         ddata_opts.add_argument("--kzord", dest="kzord", type=int, default=2, help="order of moving window filter (default=2).", metavar="integer")
 
         model_opts = parser.add_argument_group("Model options")
-        model_opts.add_argument("--lag", dest="lag", type=int, default=12, help="length of the convolution kernel (default=12)", metavar="integer")
+        model_opts.add_argument("--lag", dest="lag", type=int, default=24, help="length of the convolution kernel (default=24)", metavar="integer")
         model_opts.add_argument("--pord", dest="pord", type=int, default=None, help="order of non-thermal polynomial process (default=1 for trend or all component, 0 for seasonal component).", metavar="integer")
         model_opts.add_argument("--dord", dest="dord", type=int, default=None, help="order of derivative (default=1 for trend or all component, 0 for seasonal component).", metavar="integer")
 
@@ -239,8 +237,9 @@ def main():
         tdata_opts.add_argument("--Ntrn", dest="Ntrn", type=int, default=3*30*24, help="length of the training data (default=24*30*3).", metavar="integer")
 
         dimr_opts = parser.add_argument_group("Dimension reduction options")
-        dimr_opts.add_argument("--vthresh", dest="vthresh", type=float, default=10**-3, help="relative threshold for dimension reduction (default=1e-3), no dimension reduction if set to 0.", metavar="float")
-        dimr_opts.add_argument("--corrflag", dest="corrflag", action="store_true", default=False, help="use correlation matrix in dimension reduction.")
+        dimr_opts.add_argument("--vthresh", dest="vthresh", type=float, default=10**-2, help="relative threshold for dimension reduction (default=1e-3), no dimension reduction if set to 0.", metavar="float")
+        dimr_opts.add_argument("--cdim", dest="cdim", type=int, default=None, help="reduced dimension, vthresh will be ignored if cdim is set to some positive integer (default=None).", metavar="integer")
+        # dimr_opts.add_argument("--corrflag", dest="corrflag", action="store_true", default=False, help="use correlation matrix in dimension reduction.")
 
     # for parser in [parser_ls, parser_bm, parser_analysis]:
     #     parser.add_argument("-v", "--verbose", dest="verbose", action="count", default=0, help="Print messages.")

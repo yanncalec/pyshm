@@ -7,7 +7,7 @@ import scipy
 import scipy.special
 import pandas as pd
 from functools import wraps
-
+import warnings
 # from sklearn.cluster import KMeans
 # from sklearn.decomposition import PCA
 # from sklearn.gaussian_process import GaussianProcess
@@ -90,7 +90,7 @@ def normalize(X0, W=None):
     return Xn
 
 
-def pca(X, nc=None, corrflag=False):
+def pca(X, W=None, nc=None, corrflag=False):
     """
     Principal Component Analysis.
 
@@ -103,9 +103,9 @@ def pca(X, nc=None, corrflag=False):
 
     """
     if corrflag:
-        U, S, _ = la.svd(corr(X,X))
+        U, S, _ = la.svd(corr(X, X, W=W))
     else:
-        U, S, _ = la.svd(cov(X,X))
+        U, S, _ = la.svd(cov(X, X, W=W))
 
     C = U.T @ (X - mean(X)[:, np.newaxis])
     return C[:nc, :], U[:, :nc], S[:nc]
@@ -119,6 +119,32 @@ def pca(X, nc=None, corrflag=False):
     #     U, S, _ = la.svd(Xcor)
     # else:
     #     U, S, _ = la.svd(Xcov)
+
+
+def cca(X0, Y0, W=None):
+    """
+    Canonical Correlation Analysis
+    """
+    # X = X0 - mean(X0)[:,np.newaxis]
+    # Y = Y0 - mean(Y0)[:,np.newaxis]
+    X, Y = X0, Y0
+
+    Cxy = cov(X,Y, W=W); Cyx = Cxy.T
+    Cxx = cov(X,X, W=W); iCxx = la.inv(Cxx)
+    Cyy = cov(Y,Y, W=W); iCyy = la.inv(Cyy)
+    Cxxsq =  scipy.linalg.sqrtm(Cxx)
+    Cyysq =  scipy.linalg.sqrtm(Cyy)
+    iCxxsq = la.inv(Cxxsq)
+    iCyysq = la.inv(Cyysq)
+    # iCxxsq = scipy.linalg.sqrtm(iCxx)
+    # iCyysq = scipy.linalg.sqrtm(iCyy)
+
+    A0, Sa, _ = la.svd(iCxxsq @ Cxy @ iCyy @ Cyx @ iCxxsq)
+    A = iCxxsq @ A0; iA = A0.T @ Cxxsq
+    B0, Sb, _ = la.svd(iCyysq @ Cyx @ iCxx @ Cxy @ iCyysq)
+    B = iCyysq @ B0; iB = B0.T @ Cyysq
+
+    return (A, Sa, iA), (B, Sb, iB), corr(A.T @ X, B.T @ Y)
 
 
 def percentile(X0, ratio):
@@ -422,24 +448,92 @@ def percentile_subset(func):
     return newfunc
 
 
-def dim_reduction(func):
+def dim_reduction_cca(func):
     @wraps(func)
-    def newfunc(Y0, X0, W0, *args, vthresh=1e-3, corrflag=False, **kwargs):
-        """Dimension reduction in multivariate linear regression by PCA.
+    def newfunc(Y0, X0, W0, *args, vthresh=0.5, cdim=None, **kwargs):
+        """Dimension reduction in multivariate linear regression by CCA.
+
+        Args:
+            vthresh (float): threshold on the value of correlations
+        """
+        # dimension reduction: either by vthresh or by cdim
+        if vthresh > 0 or cdim is not None:
+            # (U, Sy, iU), (V, Sx, iV), Ryx = cca(Y0, X0)
+            _, (V, S, _), Ryx = cca(Y0, X0, W=W0)
+
+            if cdim is None:  # cdim not given, use vthresh to compute cdim
+                cdim = np.sum(S/S[0] > vthresh)  # reduced dimension
+                # print(S/S[0], cdim)
+
+                # cdim = np.sum(np.abs(np.diag(Ryx)) > vthresh)
+                # print(np.abs(np.diag(Ryx)), cdim)
+
+            if cdim == 0:  # check cdim
+                warnings.warn("cdim==0: the reduced dimension is set to 1.")
+                cdim = 1
+                # raise ValueError("dim_reduction: output dimension is zero, relax the threshold.")
+
+            # Xcof = V.T @ (X0 - mean(X0)[:, np.newaxis])
+            # Ycof = U.T @ (Y0 - mean(Y0)[:, np.newaxis])
+            Xcof = V.T @ X0
+            # Ycof = U.T @ Y0
+
+            Lc, Cvec, Err, Sig = func(Y0, Xcof[:cdim,:], W0, *args, **kwargs)
+            L = Lc @ (V[:, :cdim].T)
+            # Cvecc,Errc,Sigc = None,None,None
+            # Lc, Cvecc, Errc, Sigc = func(Ycof[:cdimy,:], Xcof[:cdimx,:], W0, *args, **kwargs)
+            # L = iU[:, :cdimy] @ Lc @ (V[:, :cdimx].T)
+            # Cvec = iU[:, :cdimy] @ Cvecc
+            # Err = iU[:, :cdimy] @ Errc
+            # Sig = iU[:, :cdimy] @ Sigc @ iU[:, :cdimy].T
+        else:
+            L, Cvec, Err, Sig = func(Y0, X0, W0, *args, **kwargs)
+            Lc, V, S, cdim = None, None, None, None
+        return (L, Cvec, Err, Sig), (Lc, V, S) # , (Lc, Cvecc, Errc, Sigc)
+    return newfunc
+
+
+def dim_reduction_pca(func):
+    @wraps(func)
+    def newfunc(Y0, X0, W0, *args, vthresh=1e-3, cdim=None, corrflag=False, **kwargs):
+        """Dimension reduction in multivariate linear regression.
 
         Args:
             vthresh (float): threshold on the singular values S[0], S[1]... Only those such that S[n]/S[0]>vthresh will be kept after the dimension reduction
             corrflag (bool): if True use the correlation matrix instead of the covariance matrix
         """
-        # dimension reduction
-        if vthresh > 0:
-            Xcof, U, S = pca(X0, nc=None, corrflag=corrflag)  # pca coefficients
-            cdim = np.sum(S/S[0] > vthresh)  # reduced dimension
-            Lc, Cvec, Err, Sig = func(Y0, Xcof[:cdim, :], W0, *args, **kwargs)
-            L = Lc @ U[:, :cdim].T
+        # dimension reduction: either by vthresh or by cdim
+        if vthresh > 0 or cdim is not None:
+            # use covariance/correlation matrix:
+            # if corrflag:
+            #     Cyx = corr(Y0, X0, W=W0)  # correlation matrix
+            # else:
+            #     Cyx = cov(Y0, X0, W=W0)  # covariance matrix
+            # U, S, V=la.svd(Cyx); V=V.T
+            #
+            # or use PCA:
+            _, V, S = pca(X0, W=W0, nc=None, corrflag=corrflag)  # pca coefficients
+
+            if cdim is None:  # cdim not given, use vthresh to compute cdim
+                cdim = np.sum(S/S[0] > vthresh)  # reduced dimension
+                # print(S/S[0], cdim)
+            if cdim == 0:  # check cdim
+                warnings.warn("cdim==0: the reduced dimension is set to 1.")
+                cdim = 1
+                # raise ValueError("dim_reduction: output dimension is zero, relax the threshold.")
+
+            # Xcof = V.T @ (X0 - mean(X0)[:, np.newaxis])
+            Xcof = V.T @ X0
+            # Ycof = U.T @ (Y0 - mean(Y0)[:, np.newaxis])
+            # Ycof = U.T @ Y0
+
+            Lc, Cvec, Err, Sig = func(Y0, Xcof[:cdim,:], W0, *args, **kwargs)
+            L = Lc @ V[:, :cdim].T
         else:
             L, Cvec, Err, Sig = func(Y0, X0, W0, *args, **kwargs)
-        return L, Cvec, Err, Sig
+            Lc, Cvecc, Errc, Sigc = L, Cvec, Err, Sig
+            U, V, S, cdim = None, None, None, None
+        return (L, Cvec, Err, Sig), (Lc, V, S)
     return newfunc
 
 
@@ -447,31 +541,81 @@ def dim_reduction_bm(func):
     """Dimension reduction in Brownian Motion model multivariate linear regression.
     """
     @wraps(func)
-    def newfunc(Yvar, Xvar, sigmaq2, sigmar2, x0, p0, smooth=False, sidx=0, Ntrn=None, vthresh=0., corrflag=False):
+    def newfunc(Yvar, Xvar, sigmaq2, sigmar2, x0, p0, smooth=False, sidx=0, Ntrn=None, vthresh=0., cdim=None, covflag=False):
         Nt = Xvar.shape[1]  # length of observations
         # training data for dim reduction
         (tidx0, tidx1), _ = training_period(Nt, tidx0=sidx, Ntrn=Ntrn)  # valid training period
-        # dimension reduction
-        if vthresh > 0:
-            _, U, S = pca(Xvar[:, tidx0:tidx1], nc=None, corrflag=corrflag)  # pca coefficients
-            cdim = np.sum(S/S[0] > vthresh)  # reduced dimension
-            Xcof = U.T @ Xvar  # coefficients of Xvar
-            (A, Acov), (Cvec, Ccov), Err, Sig = func(Yvar, Xcof[:cdim, :], sigmaq2, sigmar2, x0=x0, p0=p0, smooth=smooth)
-            L0, C0 = [], []
-            # print(A.shape, Acov.shape)
-            W = U[:, :cdim]  # analysis matrix of subspace basis
-            Wop = Tools.matprod_op_right(W.T, A.shape[1])
-            for t in range(Nt):
-                L0.append(A[t,] @ W.T)
-                C0.append(Wop @ Acov[t,] @ Wop.T)
-                # C0.append(U[:, :cdim] @ Acov[t,] @ U[:, :cdim].T)
-            L = np.asarray(L0)
-            Lcov = np.asarray(C0)
-        else:
-            (L,Lcov), (Cvec,Ccov), Err, Sig = func(Yvar, Xvar, sigmaq2, sigmar2, x0=x0, p0=p0, smooth=smooth)
 
-        return (L,Lcov), (Cvec,Ccov), Err, Sig
+        # dimension reduction: either by vthresh or by cdim
+        if vthresh > 0 or cdim is not None:
+            # # by covariance
+            # corrflag=False
+            # if corrflag:
+            #     Cyx = corr(Yvar[:,tidx0:tidx1], Xvar[:,tidx0:tidx1], W=None)  # correlation matrix
+            # else:
+            #     Cyx = cov(Yvar[:,tidx0:tidx1], Xvar[:,tidx0:tidx1], W=None)  # covariance matrix
+            # _, S, U=la.svd(Cyx); U=U.T
+            _, U, S = pca(Xvar[:,tidx0:tidx1], nc=None, corrflag=False)  # pca coefficients
+            cdim = np.sum(S/S[0] > vthresh)  # reduced dimension
+            # print(S/S[0], cdim)
+
+            # # by cca:
+            # _, (U, S, _), Ryx = cca(Yvar[:,tidx0:tidx1], Xvar[:,tidx0:tidx1], W=None)
+            # print(S, Ryx)
+            # if cdim is None:  # cdim not given, use vthresh to compute cdim
+            #     cdim = np.sum(np.abs(np.diag(Ryx)) > vthresh)
+            #     # print(np.abs(Ryx))
+
+            if cdim == 0:  # check cdim
+                warnings.warn("cdim==0: the reduced dimension is set to 1.")
+                cdim = 1
+                # raise ValueError("dim_reduction: output dimension is zero, relax the threshold.")
+
+            Xcof = U.T @ Xvar  # coefficients of Xvar
+            (Amatc, Acovc), (Cvec, Ccov), Err, Sig = func(Yvar, Xcof[:cdim, :], sigmaq2, sigmar2, x0=x0, p0=p0, smooth=smooth)
+
+            # Recover the kernel matrices in the full shape
+            W = U[:, :cdim]  # analysis matrix of subspace basis
+            Wop = Tools.matprod_op_right(W.T, Amatc.shape[1])
+            Amat = np.asarray([Amatc[t,] @ W.T for t in range(Nt)])
+            Acov = np.asarray([Wop @ Acovc[t,] @ Wop.T for t in range(Nt)]) if covflag else None
+
+            return ((Amat, Acov), (Cvec, Ccov), Err, Sig), ((Amatc, Acovc), U, S)
+        else:
+            (Amat, Acov), (Cvec, Ccov), Err, Sig = func(Yvar, Xvar, sigmaq2, sigmar2, x0=x0, p0=p0, smooth=smooth)
+            return ((Amat, Acov), (Cvec, Ccov), Err, Sig), ((Amat, Acov), None, None)
     return newfunc
+
+
+# def dim_reduction_bm(func):
+#     """Dimension reduction in Brownian Motion model multivariate linear regression.
+#     """
+#     @wraps(func)
+#     def newfunc(Yvar, Xvar, sigmaq2, sigmar2, x0, p0, smooth=False, sidx=0, Ntrn=None, vthresh=0., corrflag=False):
+#         Nt = Xvar.shape[1]  # length of observations
+#         # training data for dim reduction
+#         (tidx0, tidx1), _ = training_period(Nt, tidx0=sidx, Ntrn=Ntrn)  # valid training period
+#         # dimension reduction
+#         if vthresh > 0:
+#             _, U, S = pca(Xvar[:, tidx0:tidx1], nc=None, corrflag=corrflag)  # pca coefficients
+#             cdim = np.sum(S/S[0] > vthresh)  # reduced dimension
+#             Xcof = U.T @ Xvar  # coefficients of Xvar
+#             (A, Acov), (Cvec, Ccov), Err, Sig = func(Yvar, Xcof[:cdim, :], sigmaq2, sigmar2, x0=x0, p0=p0, smooth=smooth)
+#             L0, C0 = [], []
+#             # print(A.shape, Acov.shape)
+#             W = U[:, :cdim]  # analysis matrix of subspace basis
+#             Wop = Tools.matprod_op_right(W.T, A.shape[1])
+#             for t in range(Nt):
+#                 L0.append(A[t,] @ W.T)
+#                 C0.append(Wop @ Acov[t,] @ Wop.T)
+#                 # C0.append(U[:, :cdim] @ Acov[t,] @ U[:, :cdim].T)
+#             L = np.asarray(L0)
+#             Lcov = np.asarray(C0)
+#         else:
+#             (L,Lcov), (Cvec,Ccov), Err, Sig = func(Yvar, Xvar, sigmaq2, sigmar2, x0=x0, p0=p0, smooth=smooth)
+
+#         return (L,Lcov), (Cvec,Ccov), Err, Sig
+#     return newfunc
 
 
 def random_subset(func):
@@ -487,8 +631,8 @@ def random_subset(func):
                 Ysub = Y[:,idx]
                 Xsub = X[:,idx]
                 Wsub = W[:,idx][idx,:] if W is not None else None
-                toto = func(Ysub, Xsub, Wsub, *args, **kwargs)
-                res.append([toto[0], toto[1]])  # L, Cvec
+                res.append(func(Ysub, Xsub, Wsub, *args, **kwargs))
+                # res.append([toto[0], toto[1]])  # L, Cvec
             # final voting procedure
             if method=="mean":
                 L = np.mean([x[0] for x in res], axis=0)
@@ -559,7 +703,7 @@ def ransac(func):
     return newfunc
 
 
-def multi_linear_regression(Y, X, W):
+def multi_linear_regression(Y, X, W, vreg=0):
     """Multivariate linear regression by generalized least square (GLS).
 
     GLS looks for the matrices L and the vector C such that the reweighted norm
@@ -588,7 +732,7 @@ def multi_linear_regression(Y, X, W):
     mY = np.atleast_2d(mean(Y, W=W)).T
 
     # L = np.dot(Syx, la.pinv(Sxx))
-    vreg = 0  # regularization
+    # vreg = 0  # regularization
     L = np.dot(Syx, la.inv(Sxx + vreg * np.eye(Sxx.shape[0])))
     Cvec = mY - np.dot(L, mX) # if constflag else np.zeros((dimY, 1))
 
@@ -680,7 +824,7 @@ def _dgp_cov_matrix(Nt, snr2=100, clen2=1):
 
 ########## Interfaces ##########
 
-def deconv(Y0, X0, lag, dord=1, pord=1, snr2=None, clen2=None, dspl=1, sidx=0, Ntrn=None, vthresh=0., corrflag=False, Nexp=0):
+def deconv(Y0, X0, lag, dord=1, pord=1, snr2=None, clen2=None, dspl=1, sidx=0, Ntrn=None, vthresh=0., cdim=None, Nexp=0):
     """Deconvolution of multivariate time series using a vectorial FIR filter by GLS.
 
     We look for the kernel convolution matrices A of the model
@@ -697,8 +841,7 @@ def deconv(Y0, X0, lag, dord=1, pord=1, snr2=None, clen2=None, dspl=1, sidx=0, N
         dspl (int): down-sampling rate
         snr2, clen2 (float): signal to noise ratio and correlation length of the polynomial Gaussian process
         vthresh (float): threshold in dimension reduction
-        corrflag (bool): if True use the correlation matrix for dimension reduction
-        Nexp (int): number of experiments in the RANSAC algorithm
+        Nexp (int): number of experiments in the RANSAC algorithm, no RANSAC if Nexp==0
     """
     assert X0.ndim == Y0.ndim == 2
     assert X0.shape[1] == Y0.shape[1]
@@ -726,8 +869,10 @@ def deconv(Y0, X0, lag, dord=1, pord=1, snr2=None, clen2=None, dspl=1, sidx=0, N
         W0 = None # invalid parameters, equivalent to W0=np.eye(Nt)
 
     # prepare regressor
-    regressor = random_subset(dim_reduction(multi_linear_regression))
-    # regressor = random_subset(dim_reduction(percentile_subset(multi_linear_regression)))
+    regressor = dim_reduction_pca(random_subset(multi_linear_regression))
+    # regressor = dim_reduction_cca(random_subset(multi_linear_regression))  # not recommended
+    # regressor = random_subset(dim_reduction_pca(multi_linear_regression))
+    # regressor = dim_reduction_pca(random_subset(percentile_subset(multi_linear_regression)))
 
     # training data
     (tidx0, tidx1), _ = training_period(Nt, tidx0=sidx, Ntrn=Ntrn)  # valid training period
@@ -740,10 +885,13 @@ def deconv(Y0, X0, lag, dord=1, pord=1, snr2=None, clen2=None, dspl=1, sidx=0, N
 
     # regresion
     # method ("mean" or "median") used in random_subset is active only when Nexp>0
-    Amat, Cvec, *_ = regressor(Ytrn, Xtrn, Winv, vthresh=vthresh, corrflag=corrflag, Nexp=Nexp, method="mean")
+    # corrflag=False
+    # corrflag (bool): if True use the correlation matrix for dimension reduction
+    # ((Amat,Amatc), Cvec, _, _), toto = regressor(Ytrn, Xtrn, Winv, vthresh=vthresh, corrflag=corrflag, Nexp=Nexp, method="mean")
+    (Amat, Cvec, *_), (Amatc, *_) = regressor(Ytrn, Xtrn, Winv, vthresh=vthresh, cdim=cdim, Nexp=Nexp, method="mean")
     Err = Yvar - (Amat @ Xvar + Cvec)  # differential residual
     Sig = cov(Err, Err)  # covariance matrix
-    Amat0 = Amat[:, :Amat.shape[-1]-(pord-dord)]
+    Amat0 = Amat[:, :Amat.shape[-1]-(pord-dord)]  # kernel matrix corresponding to the external input
     # Amat0 = Amat[:, :-(pord-dord)] if pord-dord > 0 else Amat
     # if kthresh>0:
     #     Amat[np.abs(Amat)<kthresh] = 0
@@ -756,10 +904,11 @@ def deconv(Y0, X0, lag, dord=1, pord=1, snr2=None, clen2=None, dspl=1, sidx=0, N
         Yprd = Yflt - Tools.polyprojection(Yflt, deg=dord-1, axis=-1)  # projection \Psi^\dagger \Psi
     else:
         Yprd = Yflt
-    return Yprd, (Amat, Cvec, Err, Sig)
+
+    return Yprd, (Amat, Cvec, Err, Sig), Amatc #(U, Sy, cdimy, V, Sx, cdimx)
 
 
-def deconv_bm(Y0, X0, lag, dord=1, pord=1, sigmaq2=10**-6, sigmar2=10**-1, x0=0., p0=1., smooth=False, sidx=0, Ntrn=None, vthresh=0., corrflag=False):
+def deconv_bm(Y0, X0, lag, dord=1, pord=1, sigmaq2=10**-6, sigmar2=10**-3, x0=0., p0=1., smooth=False, sidx=0, Ntrn=None, vthresh=0., cdim=None):
     """Deconvolution of multivariate time series using a vectorial FIR filter by Kalman filter.
     """
     assert X0.ndim == Y0.ndim == 2
@@ -784,8 +933,8 @@ def deconv_bm(Y0, X0, lag, dord=1, pord=1, sigmaq2=10**-6, sigmar2=10**-1, x0=0.
     regressor = dim_reduction_bm(multi_linear_regression_bm)
 
     # regression
-    (Amat, Acov), (Cvec,Ccov), Err, Sig = regressor(Yvar, Xvar, sigmaq2, sigmar2, x0, p0, smooth=smooth, sidx=sidx, Ntrn=Ntrn, vthresh=vthresh, corrflag=corrflag)
-    # (Amat, Acov): kernel matrices and covariance matrix
+    ((Amat, Acov), (Cvec, Ccov), Err, Sig), ((Amatc, Acovc), *_) = regressor(Yvar, Xvar, sigmaq2, sigmar2, x0, p0, smooth=smooth, sidx=sidx, Ntrn=Ntrn, vthresh=vthresh, cdim=cdim)
+
     Amat0 = Amat[:, :, :Amat.shape[-1]-(pord-dord)]  # kernel matrices without polynomial trend
 
     # # prediction method 1: apply kernel matrices directly on raw inputs
@@ -798,27 +947,26 @@ def deconv_bm(Y0, X0, lag, dord=1, pord=1, sigmaq2=10**-6, sigmar2=10**-1, x0=0.
     # prediction method 2: apply kernel matrices on differentiated inputs
     # then re-integrate. This method is theoretically exact but numerically unstable when dord>=2
     Xcmv = Xvar0
-    Yflt = np.zeros_like(Y0)
+    Yflt0 = np.zeros_like(Y0)
     for t in range(Nt):
         # Yflt[:,t] = Amat0[t,] @ Xcmv[:,t] + Cvec[t]
-        Yflt[:,t] = Amat0[t,] @ Xcmv[:,t]
+        Yflt0[:,t] = Amat0[t,] @ Xcmv[:,t]
+    Yflt = Yflt0.copy()
     # integration to obtain the final result
     if dord > 0:
         Yflt[np.isnan(Yflt)] = 0
         for n in range(dord):
             Yflt = np.cumsum(Yflt,axis=-1)
+        # Remark: Yprd has shape Y0.shape[1]*Nt
+        Yprd = Yflt - Tools.polyprojection(Yflt, deg=dord-1, axis=-1)  # prediction: projection \Psi^\dagger \Psi
 
-    # prediction: projection \Psi^\dagger \Psi
-    # Remark: Yprd has shape Y0.shape[1]*Nt
-    Yprd = Yflt - Tools.polyprojection(Yflt, deg=dord-1, axis=-1) if dord > 0 else Yflt
+    # # covariance matrix
+    # Ycov = np.zeros((Nt,Y0.shape[0],Y0.shape[0]))
+    # for t in range(Nt):
+    #     M = np.kron(np.eye(Y0.shape[0]), Xcmv[:,t])
+    #     Ycov[t,:,:] = M @ Acov[t,] @ M.T
 
-    # covariance matrix
-    Ycov = np.zeros((Nt,Y0.shape[0],Y0.shape[0]))
-    for t in range(Nt):
-        M = np.kron(np.eye(Y0.shape[0]), Xcmv[:,t])
-        Ycov[t,:,:] = M @ Acov[t,] @ M.T
-
-    return (Yprd,Ycov), ((Amat,Acov), (Cvec,Ccov), Err, Sig)
+    return Yprd, ((Amat, Acov), (Cvec, Ccov), Err, Sig), (Amatc, Acovc)
 
 
 def ssproj(X0, cdim=1, vthresh=None, corrflag=False, drophead=0, percent=1.):

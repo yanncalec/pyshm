@@ -134,7 +134,7 @@ def static_data_analysis_template(func):
     # import os
     # import pickle
     # import sys
-    import json
+    # import json
     # import numpy as np
     # import pandas as pd
     # import colorama

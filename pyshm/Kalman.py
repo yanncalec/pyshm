@@ -28,9 +28,9 @@ class Kalman:
     dimobs = None
 
     def __init__(self, Y, A, B, G=None, Q=None, R=None, X0=None, P0=None):
-        assert(Y.ndim == 2)
-        assert(A.ndim == 3 or A.ndim == 2)
-        assert(B.ndim == 3 or B.ndim == 2)
+        assert Y.ndim == 2
+        assert A.ndim == 3 or A.ndim == 2
+        assert B.ndim == 3 or B.ndim == 2
 
         self.dimsys = B[0].shape[1] if B.ndim == 3 else B.shape[1]
         self.dimobs = B[0].shape[0] if B.ndim == 3 else B.shape[0]
@@ -326,8 +326,7 @@ def FP_Parms_Estimation(func, sigmaq2=None, sigmar2=None, niter=100, verbose=Fal
 
 
 def Kalman_Deconv(Ydata, lagx, Xdata, sigmaq2, sigmar2, X0=None, P0=None, constflag=True):
-    """
-    State-space solution for the convolution model:
+    """State-space solution for the convolution model:
         Y[t] = \sum_{i=1}^Nh h[t,i] Y[t-i] + \sum_{j=0}^{Ng-1} g[t,j] X[t-j] + c[t]
     with h, g and c following the Brownian motion:
         h[t,i] = h[t-1,i] + u[t],  for i=1..Nh
