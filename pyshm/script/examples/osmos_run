@@ -1,4 +1,5 @@
 #!/bin/bash
+trap "exit" INT
 
 if [ $# -lt 1 ]; then
     echo "Template script for OSMOS project" >&2
@@ -55,6 +56,7 @@ if [ ! -z $MWMETHOD ]; then opts+=" --mwmethod $MWMETHOD"; fi
 # if [ ! -z $COMPONENT ]; then opts+=" --component $COMPONENT"; fi
 if [ ! -z $LAG ]; then opts+=" --lag $LAG"; fi
 if [ ! -z $VTHRESH ]; then opts+=" --vthresh $VTHRESH"; fi
+if [ ! -z $CDIM ]; then opts+=" --cdim $CDIM"; fi
 # if [ $CORRFLAG == "true" ]; then opts+=" --corrflag"; fi
 if [ ! -z $SIDX ]; then opts+=" --sidx $SIDX"; fi
 if [ ! -z $NTRN ]; then opts+=" --Ntrn $NTRN"; fi

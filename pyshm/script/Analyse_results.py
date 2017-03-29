@@ -71,7 +71,7 @@ def main():
 
     proj_opts = mainparser.add_argument_group('Options for subspace projection')  # projection
     proj_opts.add_argument('--cdim', dest='cdim', type=int, default=None, help='dimension of the subspace (default=None), no subspace projection if set to 0, if given vthresh will be ignored ', metavar='integer')
-    proj_opts.add_argument('--vthresh', dest='vthresh', type=float, default=0.1, help='relative threshold for subspace projection (default=0.1).', metavar='float')
+    proj_opts.add_argument('--vthresh', dest='vthresh', type=float, default=0.9, help='relative threshold for subspace projection (default=0.9).', metavar='float')
     proj_opts.add_argument("--corrflag", dest="corrflag", action="store_true", default=False, help="use correlation matrix in subspace projection.")
 
     lstat_opts = mainparser.add_argument_group('Options for local statistics')  # local statistics

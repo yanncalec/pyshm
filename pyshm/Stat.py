@@ -541,10 +541,20 @@ def dim_reduction_bm(func):
     """Dimension reduction in Brownian Motion model multivariate linear regression.
     """
     @wraps(func)
-    def newfunc(Yvar, Xvar, sigmaq2, sigmar2, x0, p0, smooth=False, sidx=0, Ntrn=None, vthresh=0., cdim=None, covflag=False):
-        Nt = Xvar.shape[1]  # length of observations
+    def newfunc(Yvar0, Xvar0, sigmaq2, sigmar2, x0, p0, smooth=False, sidx=0, Ntrn=None, vthresh=0., cdim=None, covflag=False, rescale=True):
+        Nt = Xvar0.shape[1]  # length of observations
         # training data for dim reduction
         (tidx0, tidx1), _ = training_period(Nt, tidx0=sidx, Ntrn=Ntrn)  # valid training period
+
+        # rescale only Y variable
+        if rescale:
+            # dXvar0 = np.diff(Xvar0, axis=-1)
+            # Xscl = scipy.linalg.sqrtm(cov(dXvar0[:,tidx0:tidx1], dXvar0[:,tidx0:tidx1]))
+            Yscl = scipy.linalg.sqrtm(cov(Yvar0[:,tidx0:tidx1], Yvar0[:,tidx0:tidx1]))
+            Xvar, Yvar = Xvar0, la.inv(Yscl) @ Yvar0
+        else:
+            Yscl = np.eye(Yvar0.shape[0])
+            Xvar, Yvar = Xvar0, Yvar0
 
         # dimension reduction: either by vthresh or by cdim
         if vthresh > 0 or cdim is not None:
@@ -579,11 +589,20 @@ def dim_reduction_bm(func):
             Wop = Tools.matprod_op_right(W.T, Amatc.shape[1])
             Amat = np.asarray([Amatc[t,] @ W.T for t in range(Nt)])
             Acov = np.asarray([Wop @ Acovc[t,] @ Wop.T for t in range(Nt)]) if covflag else None
-
-            return ((Amat, Acov), (Cvec, Ccov), Err, Sig), ((Amatc, Acovc), U, S)
         else:
             (Amat, Acov), (Cvec, Ccov), Err, Sig = func(Yvar, Xvar, sigmaq2, sigmar2, x0=x0, p0=p0, smooth=smooth)
-            return ((Amat, Acov), (Cvec, Ccov), Err, Sig), ((Amat, Acov), None, None)
+            U, S = None
+            Amatc, Acovc = Amat, Acov
+
+        if rescale:  # inverse rescaling
+            for t in range(Nt):
+                Amat[t,] = Yscl @ Amat[t,]
+                if Acov is not None:
+                    Acov[t,] = Yscl @ Acov[t,] @ Yscl.T
+                Cvec[t,] = Yscl @ Cvec[t,]
+                Ccov[t,] = Yscl @ Ccov[t,] @ Yscl.T
+
+        return ((Amat, Acov), (Cvec, Ccov), Err, Sig), ((Amatc, Acovc), U, S)
     return newfunc
 
 
@@ -905,10 +924,11 @@ def deconv(Y0, X0, lag, dord=1, pord=1, snr2=None, clen2=None, dspl=1, sidx=0, N
     else:
         Yprd = Yflt
 
-    return Yprd, (Amat, Cvec, Err, Sig), Amatc #(U, Sy, cdimy, V, Sx, cdimx)
+    # return Yprd, (Amat, Cvec, Err, Sig), Amatc #(U, Sy, cdimy, V, Sx, cdimx)
+    return Yprd, Amat, Amatc
 
 
-def deconv_bm(Y0, X0, lag, dord=1, pord=1, sigmaq2=10**-6, sigmar2=10**-3, x0=0., p0=1., smooth=False, sidx=0, Ntrn=None, vthresh=0., cdim=None):
+def deconv_bm(Y0, X0, lag, dord=1, pord=1, sigmaq2=10**-6, sigmar2=10**-3, x0=0., p0=1., smooth=False, sidx=0, Ntrn=None, vthresh=0., cdim=None): # rescale=True
     """Deconvolution of multivariate time series using a vectorial FIR filter by Kalman filter.
     """
     assert X0.ndim == Y0.ndim == 2
@@ -919,21 +939,23 @@ def deconv_bm(Y0, X0, lag, dord=1, pord=1, sigmaq2=10**-6, sigmar2=10**-3, x0=0.
     Nt = X0.shape[1]  # length of observations
 
     # the part of external input
-    dX = np.zeros_like(X0) * np.nan; dX[:,dord:] = np.diff(X0, dord, axis=-1)
+    dX0 = np.zeros_like(X0) * np.nan; dX0[:,dord:] = np.diff(X0, dord, axis=-1)
+    dY0 = np.zeros_like(Y0) * np.nan; dY0[:,dord:] = np.diff(Y0, dord, axis=-1)
+    dX, dY = dX0, dY0
+
     Xvar0 = Tools.mts_cumview(dX, lag)  # cumulative view for convolution
     # the part of polynominal trend
     Xvar1 = Tools.dpvander(np.arange(Nt)/Nt, pord, dord)  # division by Nt: normalization for numerical stability
+    # Xvar and Yvar are the variables passed to the Kalman filter
     Xvar = np.vstack([Xvar0, Xvar1[:-1,:]])  #[:-1,:] removes the constant trend which may cause non-invertible covariance matrix. If the constant trend is kept here, Yprd at the end of this function should be modified accordingly like this:
     # Amat0 = Amat[:, :-(pord-dord+1)] ...
-
-    dY = np.zeros_like(Y0) * np.nan; dY[:,dord:] = np.diff(Y0, dord, axis=-1)
     Yvar = dY
 
     # prepare regressor
     regressor = dim_reduction_bm(multi_linear_regression_bm)
 
     # regression
-    ((Amat, Acov), (Cvec, Ccov), Err, Sig), ((Amatc, Acovc), *_) = regressor(Yvar, Xvar, sigmaq2, sigmar2, x0, p0, smooth=smooth, sidx=sidx, Ntrn=Ntrn, vthresh=vthresh, cdim=cdim)
+    ((Amat, Acov), (Cvec, Ccov), Err, Sig), ((Amatc, Acovc), *_) = regressor(Yvar, Xvar, sigmaq2, sigmar2, x0, p0, smooth=smooth, sidx=sidx, Ntrn=Ntrn, vthresh=vthresh, cdim=cdim, rescale=True)
 
     Amat0 = Amat[:, :, :Amat.shape[-1]-(pord-dord)]  # kernel matrices without polynomial trend
 
@@ -947,11 +969,10 @@ def deconv_bm(Y0, X0, lag, dord=1, pord=1, sigmaq2=10**-6, sigmar2=10**-3, x0=0.
     # prediction method 2: apply kernel matrices on differentiated inputs
     # then re-integrate. This method is theoretically exact but numerically unstable when dord>=2
     Xcmv = Xvar0
-    Yflt0 = np.zeros_like(Y0)
+    Yflt = np.zeros_like(Y0)
     for t in range(Nt):
         # Yflt[:,t] = Amat0[t,] @ Xcmv[:,t] + Cvec[t]
-        Yflt0[:,t] = Amat0[t,] @ Xcmv[:,t]
-    Yflt = Yflt0.copy()
+        Yflt[:,t] = Amat0[t,] @ Xcmv[:,t]
     # integration to obtain the final result
     if dord > 0:
         Yflt[np.isnan(Yflt)] = 0
@@ -959,14 +980,17 @@ def deconv_bm(Y0, X0, lag, dord=1, pord=1, sigmaq2=10**-6, sigmar2=10**-3, x0=0.
             Yflt = np.cumsum(Yflt,axis=-1)
         # Remark: Yprd has shape Y0.shape[1]*Nt
         Yprd = Yflt - Tools.polyprojection(Yflt, deg=dord-1, axis=-1)  # prediction: projection \Psi^\dagger \Psi
+    else:
+        Yprd = Yflt
 
-    # # covariance matrix
+    # # covariance matrix: abandonned
     # Ycov = np.zeros((Nt,Y0.shape[0],Y0.shape[0]))
     # for t in range(Nt):
     #     M = np.kron(np.eye(Y0.shape[0]), Xcmv[:,t])
     #     Ycov[t,:,:] = M @ Acov[t,] @ M.T
 
-    return Yprd, ((Amat, Acov), (Cvec, Ccov), Err, Sig), (Amatc, Acovc)
+    # return Yprd, ((Amat, Acov), (Cvec, Ccov), Err, Sig), (Amatc, Acovc)
+    return Yprd, (Amat, Acov), (Amatc, Acovc)
 
 
 def ssproj(X0, cdim=1, vthresh=None, corrflag=False, drophead=0, percent=1.):
@@ -1000,11 +1024,12 @@ def ssproj(X0, cdim=1, vthresh=None, corrflag=False, drophead=0, percent=1.):
     _, U, S = pca(X2, corrflag=corrflag)
     # subspace dimension
     if cdim is None: # if cdim is not given, use vthresh to determine it
+        assert 0 < vthresh <=1.
         # toto = S/S[0]
         # cdim = np.sum(toto > vthresh)
-        toto = 1-np.cumsum(S/np.sum(S))
-        cdim = np.where(toto < vthresh)[0][0]+1
-        print(cdim,toto)
+        toto = np.cumsum(S/np.sum(S))
+        cdim = np.where(toto >= vthresh)[0][0]+1
+        # print(cdim,toto)
         # cdim = np.sum(S/S[0] > vthresh)
         # cdim = np.sum(S/np.sum(S) > vthresh)
     else:  # if cdim is given, vthresh has no effect

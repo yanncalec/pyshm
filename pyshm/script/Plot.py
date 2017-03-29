@@ -497,15 +497,15 @@ def deconv_plot_dynamic_kernel(Krnl, Tidx, ncoef=10):
     Krnl_mean = np.mean(Krnl, axis=0)
 
     fig, axa = plt.subplots(1,1,figsize=(20, 5))
-    for c in range(ncoef):
+    for c in range(min(Krnl.shape[0], ncoef)):
         axa.plot(Tidx, Krnl[c,:], label='coefficient {}'.format(c))
         axa.legend()
-    axa.plot(Tidx, Krnl_mean, label='mean coefficient')
+    axa.plot(Tidx, Krnl_mean, linewidth=3, label='mean coefficient')
     axa.legend(loc='upper right', fancybox=True, framealpha=0.5)
     return fig, axa
 
 
-def deconv_plot_mean_dynamic_kernel(Krnl, Kcov, Tidx, pval=0.1):
+def deconv_plot_mean_dynamic_kernel(Krnl, Kcov, Tidx, pval=0.9):
     """Plot mean value of the dynamic kernel.
 
     Args:
@@ -583,6 +583,7 @@ def main():
         lstat_opts.add_argument('--hthresh', dest='hthresh', type=float, default=0.8, help='threshold value of Hurst exponent (between 0 and 1) for instability detection in trend components (default=0.8).', metavar='float')
         lstat_opts.add_argument('--gap', dest='gap', type=int, default=24*5, help='minimal length of instability period (default=24*5).', metavar='integer')
         lstat_opts.add_argument('--drophead', dest='drophead', type=int, default=0, help='drop head of the results of BM model (default=24*30).', metavar='integer')
+        lstat_opts.add_argument('--pval', dest='pval', type=float, default=0.9, help='level of the interval of confidence (between 0. and 1.) around the coefficients of the Brownian motion model (default=0.9).', metavar='float')
 
     options = mainparser.parse_args()
     warnings.simplefilter('error', UserWarning)
@@ -805,14 +806,14 @@ def main():
                 fig.savefig(fname+'.pdf', bbox_inches='tight')
             else:
                 Amat, Acov = Res['Amatc'][:,n,:].T, Res['Acovc'][:,n,:].T
-                # fig, axa = deconv_plot_dynamic_kernel(Amat, Acov, Tidx)
-                # axa.set_title('Location {}: evolution of convolution kernel'.format(loc))
-                # plt.tight_layout()
-                # fname = os.path.join(figdir1, 'Kernel_dynamic')
-                # fig.savefig(fname+'.pdf', bbox_inches='tight')
+                fig, axa = deconv_plot_dynamic_kernel(Amat, Tidx)
+                axa.set_title('Location {}: evolution of the convolution kernel'.format(loc))
+                plt.tight_layout()
+                fname = os.path.join(figdir1, 'Kernel_dynamic')
+                fig.savefig(fname+'.pdf', bbox_inches='tight')
 
-                fig, axa = deconv_plot_mean_dynamic_kernel(Amat, Acov, Tidx, pval=0.00001)
-                axa.set_title('Location {}: evolution of convolution kernel'.format(loc))
+                fig, axa = deconv_plot_mean_dynamic_kernel(Amat, Acov, Tidx, pval=options.pval)
+                axa.set_title('Location {}: evolution of the convolution kernel (mean coefficient)'.format(loc))
                 plt.tight_layout()
                 fname = os.path.join(figdir1, 'Kernel_dynamic_mean')
                 fig.savefig(fname+'.pdf', bbox_inches='tight')

@@ -118,7 +118,7 @@ def _Deconv_static_data(Xcpn, Ycpn, options):
     #         Yprd0.append(yprd[0])
     #         Ycov0.append(ycov[0])
     if staticflag:
-        Yprd0, (Amat, *_), Amatc = Stat.deconv(Yvar, Xvar, options.lag, dord=options.dord, pord=options.pord, snr2=options.snr2, clen2=options.clen2, dspl=options.dspl, sidx=options.sidx, Ntrn=options.Ntrn, vthresh=options.vthresh, corrflag=options.corrflag, Nexp=options.Nexp)
+        Yprd0, Amat, Amatc = Stat.deconv(Yvar, Xvar, options.lag, dord=options.dord, pord=options.pord, snr2=options.snr2, clen2=options.clen2, dspl=options.dspl, sidx=options.sidx, Ntrn=options.Ntrn, vthresh=options.vthresh, Nexp=options.Nexp)
 
         Yprd = pd.DataFrame(Yprd0.T, columns=options.alocs, index=Tidx)
         Yerr0 = Yvar - Yprd0  # error of prediction
@@ -140,7 +140,7 @@ def _Deconv_static_data(Xcpn, Ycpn, options):
         for n, aloc in enumerate(options.alocs):
             if options.verbose:
                 print("\tProcessing the location {}...".format(aloc))
-            yprd, ((amat,acov), (cvec,ccov), err, sig), (amatc,acovc) = Stat.deconv_bm(Yvar[[n],:], Xvar, options.lag, dord=options.dord, pord=options.pord, sigmaq2=options.sigmaq2, sigmar2=options.sigmar2, x0=0., p0=1., smooth=smoothflag, sidx=options.sidx, Ntrn=options.Ntrn, vthresh=options.vthresh, cdim=options.cdim)
+            yprd, (amat,acov), (amatc,acovc) = Stat.deconv_bm(Yvar[[n],:], Xvar, options.lag, dord=options.dord, pord=options.pord, sigmaq2=options.sigmaq2, sigmar2=options.sigmar2, x0=0., p0=1., smooth=smoothflag, sidx=options.sidx, Ntrn=options.Ntrn, vthresh=options.vthresh, cdim=options.cdim)
             # print(yprd.shape, ycov.shape, amat.shape, acov.shape)
             Yprd0.append(yprd)
             # Amat0.append(np.squeeze(amat))
@@ -252,7 +252,7 @@ def main():
 
     kalman_opts = parser_bm.add_argument_group("Kalman filter options (bm model only)")
     kalman_opts.add_argument("--sigmaq2", dest="sigmaq2", type=float, default=10**-6, help="variance of transition noise (default=1e-6).", metavar="float")
-    kalman_opts.add_argument("--sigmar2", dest="sigmar2", type=float, default=10**-3, help="variance of observation noise (default=1e-3).", metavar="float")
+    kalman_opts.add_argument("--sigmar2", dest="sigmar2", type=float, default=10**-6, help="variance of observation noise (default=1e-6).", metavar="float")
     kalman_opts.add_argument("--kalman", dest="kalman", type=str, default="smoother", help="method of estimation of Kalman filter: filter, smoother (default).", metavar="string")
 
     options = mainparser.parse_args()
