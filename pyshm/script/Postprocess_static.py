@@ -72,7 +72,9 @@ def main():
     proj_opts.add_argument('--cdim', dest='cdim', type=int, default=None, help='dimension of the subspace (default=None), no subspace projection if set to 0, if given vthresh will be ignored ', metavar='integer')
     proj_opts.add_argument('--vthresh', dest='vthresh', type=float, default=0.9, help='relative threshold for subspace projection (default=0.9).', metavar='float')
     proj_opts.add_argument("--corrflag", dest="corrflag", action="store_true", default=False, help="use correlation matrix in subspace projection.")
-    proj_opts.add_argument('--drophead', dest='drophead', type=int, default=3*24*30, help='drop the begining of the input data in the computation of subspace projection (default=3*24*30).', metavar='integer')
+    # proj_opts.add_argument('--drophead', dest='drophead', type=int, default=3*24*30, help='drop the begining of the input data in the computation of subspace projection (default=3*24*30).', metavar='integer')
+    proj_opts.add_argument("--sidx", dest="sidx", type=int, default=0, help="starting time index (an integer) of the training data (default=0).", metavar="integer")
+    proj_opts.add_argument("--Ntrn", dest="Ntrn", type=int, default=None, help="length of the training data (default=None, use all available data).", metavar="integer")
 
     lstat_opts = mainparser.add_argument_group('Options for local statistics')  # local statistics
     lstat_opts.add_argument('--mad', dest='mad', action='store_true', default=False, help='use median based estimator (default: use empirical estimator).')
@@ -129,9 +131,9 @@ def main():
         options.cdim = min(len(alocs)-1, options.cdim)  # special case
     Yerr0 = np.asarray(Yerr).T
     # throw away the first (two) months
-    Yssp0, (U,S), options.cdim = Models.ssproj(Yerr0, cdim=options.cdim, vthresh=options.vthresh, corrflag=options.corrflag, drophead=options.drophead)
+    Yssp0, (U,S), options.cdim = Models.ssproj(Yerr0, cdim=options.cdim, vthresh=options.vthresh, corrflag=options.corrflag, sidx=options.sidx, Ntrn=options.Ntrn)
     Yssp = pd.DataFrame(Yssp0.T, columns=alocs, index=Tidx)
-    Yerp0 = Yerr0 - Yssp0  # error of projection, which will be used to analysis
+    Yerp0 = Yerr0 - Yssp0  # error of projection, which will be used by analysis
     Yerp = pd.DataFrame(Yerp0.T, columns=alocs, index=Tidx)
     Scof = (U @ np.diag(np.sqrt(S/S[0])))  # Scof[:,:3] are the first 3 PCA coefficients
 

@@ -571,7 +571,7 @@ examples = []
 examples.append(["%(prog)s -h", "Print this help messages (about common parameters)"])
 examples.append(["%(prog)s data DBDIR/153/Raw.pkl OUTDIR/153", "Plot raw data (both static and dynamic) of the project 153 in the folder OUTDIR/153/Raw."])
 examples.append(["%(prog)s data DBDIR/153/Preprocessed_static.pkl DBDIR/153 --html", "Plot preprocessed static data of the project 153 in the folder DBDIR/153/Preprocessed_static additionally with the output in html format."])
-examples.append(["%(prog)s analysis OUTDIR/153/.../Results.pkl", "Plot the results of analysis of the project 153 in the same folder as the input file."])
+examples.append(["%(prog)s anls OUTDIR/153/.../Results.pkl", "Plot the results of analysis of the project 153 in the same folder as the input file."])
 
 __example__ = "Some examples of use (change the path seperator '/' to '\\' on Windows platform):" + "".join([examplestyle(x) for x in examples])
 
@@ -590,7 +590,7 @@ def main():
     # parser_preproc = subparsers.add_parser('preprocess', help='plot preprocessed static data')
     # parser_deconv = subparsers.add_parser('deconv', help='Plot and analyse the results of deconvolution (cf. osmos_deconv)')
     # parser_thermal = subparsers.add_parser('thermal', help='Plot the results of thermal analysis (cf. osmos_thermal)')
-    parser_analyse = subparsers.add_parser('analyse', help='plot the results of analysis (cf. osmos_deconv and osmos_thermal)')
+    parser_analyse = subparsers.add_parser('anls', help='plot the results of analysis (cf. osmos_deconv and osmos_thermal)')
 
     for parser in [parser_data, parser_analyse]:
         parser.add_argument('infile', type=str, help='input data file.')
@@ -664,7 +664,7 @@ def main():
             preprocess_plot(figdir, Data, marknan=True, markjump=True, html=options.html)
         else:
             raise NameError("Name of the input data file must be 'Raw' or 'Preprocessed_static'.")
-    elif options.subcommand.upper() == "ANALYSE":
+    elif options.subcommand.upper() == "ANLS":
         # idx0 = options.infile.rfind(os.path.sep, 0)
         # idx1 = options.infile.find('.', idx0)
         # figdir = os.path.join(options.outdir, options.infile[idx0+1:idx1])

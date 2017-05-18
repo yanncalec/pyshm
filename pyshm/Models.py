@@ -192,7 +192,7 @@ def deconv_bm(Y0, X0, lag, dord=1, pord=1, sigmaq2=10**-6, sigmar2=10**-3, x0=0.
     return Yprd, (Amat, Acov), (Amatc, Acovc)
 
 
-def ssproj(X0, cdim=1, vthresh=None, corrflag=False, drophead=0):
+def ssproj(X0, cdim=1, vthresh=None, corrflag=False, sidx=0, Ntrn=None):
     """Projection of a multivariate time series onto a subspace.
 
     Args:
@@ -200,15 +200,23 @@ def ssproj(X0, cdim=1, vthresh=None, corrflag=False, drophead=0):
         cdim (int): dimension of the subspace, if cdim==0 return zero
         vthresh (float): relative threshold, if given cdim will be ignored
         corrflag (bool): if True use correlation matrix for PCA
+        sidx (int): starting index of the training period
+        Ntrn (int): length of the training period
     Returns:
         Xprj: projection
         U,S: PCA basis and singular values
         cdim: true dimension of the subspace
     """
     assert not ((cdim is None) and (vthresh is None))
+    assert sidx >= 0
+
+    if Ntrn is None:
+        tidx0, tidx1 = None, None
+    else:
+        tidx0, tidx1 = sidx, sidx+Ntrn
+    # print(tidx0, tidx1)
     # take derivative to transform to a stationary time series
-    X1 = np.diff(X0,axis=-1)
-    X1[:,:drophead] = np.nan  # remove the begining
+    X1 = np.diff(X0[:,tidx0:tidx1], axis=-1)
     # another option is to centralize X1 = centralize(X0)
 
     # PCA of transformed time series
@@ -241,9 +249,9 @@ def ssproj(X0, cdim=1, vthresh=None, corrflag=False, drophead=0):
     # projection
     if cdim > 0:
         Xprj = U[:,:cdim] @ U[:,:cdim].T @ X0
-        # # or by integration
-        # dXprj = U[:,:cdim] @ U[:,:cdim].T @ X1
-        # dXprj [np.isnan(dXprj)] = 0
+        # # or by integration, not working well in practice
+        # dXprj = U[:,:cdim] @ U[:,:cdim].T @ np.diff(X0, axis=-1)
+        # dXprj[np.isnan(dXprj)] = 0
         # Xprj = np.zeros_like(X0)
         # Xprj[:,1:] = np.cumsum(dXprj, axis=-1)
     else:
