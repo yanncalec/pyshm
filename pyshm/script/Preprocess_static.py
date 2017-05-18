@@ -34,7 +34,7 @@ def Preprocess_static_data(projdir, options):
     Sdata = {}
 
     # Load assembled raw data
-    Rdata, Sdata_raw, Ddata, Locations = OSMOS.load_raw_data(os.path.join(projdir, 'Raw.pkl'))
+    Rdata, Sdata_raw, Ddata, Locations = OSMOS.load_raw_data(os.path.join(projdir, 'Raw.pkl'), datatype='static')
 
     for loc, X in Sdata_raw.items():
         if options.verbose:
@@ -85,7 +85,7 @@ __all__ =["Preprocess_static_data", "Options"]
 
 __script__ = __doc__
 
-__warning__ = "Warning:" + warningstyle("\n  This script should be run after the update of the local database (with the script osmos_download). In most cases the options of preprocessing are not necessary and it is recommended to use default parameters.")
+__warning__ = "Warning:" + warningstyle("\n  This script should be run after the updating the local database (with the script osmos_download). The default parameters of the preprocessing should work in most of cases.")
 
 examples = []
 examples.append(["%(prog)s -v DBDIR/153", "Apply preprocessing with default parameters on the project 153 in the database directory DBDIR and print messages (the results will be saved in DBDIR/153/Preprocessed_static.pkl)."])

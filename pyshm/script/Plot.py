@@ -8,7 +8,7 @@ import numpy as np
 import scipy
 import pandas as pd
 import json
-from pyshm import OSMOS, Tools, Stat
+from pyshm import OSMOS, Tools, Stat, Models
 from pyshm.script import static_data_analysis_template, examplestyle, warningstyle, load_result_of_analysis
 from pyshm.script import MyEncoder, to_json
 import warnings
@@ -58,7 +58,7 @@ def add_subplot_row(fig, **kwargs):
     return fig
 
 
-def raw_plot(figdir, Rdata, Sdata, Ddata, html=False):
+def raw_plot(figdir, Rdata, Sdata, Ddata, html=False, sep=False, verbose=False):
     """Plot raw data.
 
     Args:
@@ -104,26 +104,48 @@ def raw_plot(figdir, Rdata, Sdata, Ddata, html=False):
     plt.close(fig)
 
     # plot all data of each sensor in separated files
+    # print(Rdata.keys())
+    # print(Ddata.keys())
 
+    # Warning of mpld3 bug
+    print(warningstyle('The timestamp of the dynamic data in the html file rendered by mpld3 may be misaligned due to some unknown bug of the mpld3 library.'))
     for loc, val in Rdata.items():
-        fig, axes = plt.subplots(2,1,figsize=(20,10), sharex=True)
-        Xt, Yt = val['Temperature'], val['Elongation']
-        axes[0].plot(Xt,'r')#, label='{}'.format(loc))
-        axes[1].plot(Yt,'b')
+        fig, axes = plt.subplots(2, 1, figsize=(20,10), sharex=True)
+        T = val.index  # timestamps
+        X, Y = np.asarray(val['Temperature']), np.asarray(val['Elongation'])
+        axes[0].plot(T, X, 'r')#, label='{}'.format(loc))
+        axes[1].plot(T, Y, 'b')
         axes[0].set_ylabel('Temperature')
         axes[1].set_ylabel('Elongation')
 
         # highlight dynamic events
         for v in Ddata[loc]:
+            # print(v.index[0], v.index[-1])
             # axes[1].axvspan(v.index[0], v.index[-1], color='r', alpha=0.3)
-            axes[1].plot(v, 'r', alpha=0.5)  # down-sampling dynamic events
-
+            axes[1].plot(v.index, np.asarray(v), 'r', alpha=0.5)  # down-sampling dynamic events
         plt.tight_layout()
 
         if html:
             mpld3.save_html(fig, os.path.join(figdir_html, '{}.html'.format(loc)))
         fig.savefig(os.path.join(figdir_pdf, '{}.pdf'.format(loc)))
         plt.close(fig)
+
+    if sep:  # plot separately the dynamic events
+        if verbose:
+            print('Generating separate plots of dynamic events...')
+
+        for loc, Data in Ddata.items():
+            figdir_sep = os.path.join(figdir, 'dynamic', str(loc))
+            try:
+                os.makedirs(figdir_sep)
+            except:
+                pass
+            for n, X in enumerate(Data):
+                fig, axa = plt.subplots(1, 1, figsize=(20, 5))
+                axa.plot(X, 'r', alpha=0.5)#, label='{}'.format(loc))
+                axa.set_title('From {} to {}, duration = {} milliseconds ({} points)'.format(X.index[0], X.index[-1], len(X)*20, len(X)))
+                fig.savefig(os.path.join(figdir_sep, '{}.pdf'.format(n)))
+                plt.close(fig)
 
 
 def preprocess_plot(figdir, Sdata, marknan=True, markjump=True, html=False):
@@ -266,7 +288,7 @@ def summary_plot(Tcpn, Ecpn, Eprd, Eerr, Essp, cdim, Eerp, figdir, html=False):
 def pca_plot(Yerr, figdir):
     Locations = list(Yerr.columns)
     if len(Locations) >= 2:
-        _, (U, S), _ = Stat.ssproj(np.asarray(Yerr).T, cdim=1, corrflag=False)
+        _, (U, S), _ = Models.ssproj(np.asarray(Yerr).T, cdim=1, corrflag=False)
 
         # Regrouping of sensors
         Scof = (U @ np.diag(np.sqrt(S/S[0])))  # Scof[:,:3] are the first 3 PCA coefficients
@@ -547,8 +569,10 @@ __script__ = __doc__
 
 examples = []
 examples.append(["%(prog)s -h", "Print this help messages (about common parameters)"])
-examples.append(["%(prog)s raw DBDIR/153/Raw.pkl OUTDIR/153", "Plot raw data (both static and dynamic) of the project 153 in the folder OUTDIR/153/Raw."])
-examples.append(["%(prog)s preprocess DBDIR/153/Preprocessed_static.pkl DBDIR/153 --html", "Plot preprocessed static data of the project 153 in the folder DBDIR/153/Preprocessed_static additionally with the output in html format."])
+examples.append(["%(prog)s data DBDIR/153/Raw.pkl OUTDIR/153", "Plot raw data (both static and dynamic) of the project 153 in the folder OUTDIR/153/Raw."])
+examples.append(["%(prog)s data DBDIR/153/Preprocessed_static.pkl DBDIR/153 --html", "Plot preprocessed static data of the project 153 in the folder DBDIR/153/Preprocessed_static additionally with the output in html format."])
+examples.append(["%(prog)s analysis OUTDIR/153/.../Results.pkl", "Plot the results of analysis of the project 153 in the same folder as the input file."])
+
 __example__ = "Some examples of use (change the path seperator '/' to '\\' on Windows platform):" + "".join([examplestyle(x) for x in examples])
 
 
@@ -575,6 +599,8 @@ def main():
         parser.add_argument('-v', '--verbose', dest='verbose', action='count', default=0, help='print messages.')
         # parser.add_argument('--info', dest='info', action='store_true', default=False, help='Print only information about the project.')
         parser.add_argument('--html', dest='html', action='store_true', default=False, help='Generate plots in html format (in addition of pdf format).')
+
+    parser_data.add_argument('--sep', dest='sep', action='store_true', default=False, help='Generate separate plots of dynamic data (for raw data format only).')
 
     for parser in [parser_analyse]:
         lstat_opts = parser.add_argument_group('Options for event and instability detection')  # local statistics
@@ -608,7 +634,7 @@ def main():
     # do plot
     if options.subcommand.upper() == "DATA":
         if options.infile[-7:].upper() == "RAW.PKL":
-            Rdata, Sdata, Ddata, Locations = OSMOS.load_raw_data(options.infile)
+            Rdata, Sdata, Ddata, Locations = OSMOS.load_raw_data(options.infile, datatype='all')
 
             idx0 = options.infile.rfind(os.path.sep, 0)
             idx1 = options.infile.find('.', idx0)
@@ -620,7 +646,7 @@ def main():
             if options.verbose:
                 print('Generating plots...')
 
-            raw_plot(figdir, Rdata, Sdata, Ddata, html=options.html)
+            raw_plot(figdir, Rdata, Sdata, Ddata, html=options.html, sep=options.sep, verbose=options.verbose)
         elif options.infile[-23:].upper() == "PREPROCESSED_STATIC.PKL":
             Data, *_ = OSMOS.load_static_data(options.infile)
 

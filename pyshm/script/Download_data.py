@@ -1,6 +1,9 @@
 #!/usr/bin/env python
 
 """Download or update the local database.
+
+Note:
+    The projects in the local database are organized by their PID (project key ID) of 3 digits. For example, the project 24 is saved in the folder '024'.
 """
 
 import os, sys, argparse
@@ -86,10 +89,15 @@ def Download_data(dbdir, options):
         info = DicProject[pid]
         if options.verbose:
             print('\n---------Fetching project {}---------'.format(pid))
-            print('Name: {}'.format(info['name']).encode('utf-8'))
-            print('Level: {}'.format(info['level']).encode('utf-8'))
-            print('Start: {}'.format(info['start']).encode('utf-8'))
-            print('End: {}'.format(info['end']).encode('utf-8'))
+            print('Name: {}'.format(info['name']))
+            print('Level: {}'.format(info['level']))
+            print('Start: {}'.format(info['start']))
+            print('End: {}'.format(info['end']))
+            # # in case of error, try utf-8 encoding:
+            # print('Name: {}'.format(info['name']).encode('utf-8'))
+            # print('Level: {}'.format(info['level']).encode('utf-8'))
+            # print('Start: {}'.format(info['start']).encode('utf-8'))
+            # print('End: {}'.format(info['end']).encode('utf-8'))
 
         try:
             # new data are saved in sub-folders named by the locations' keyid
@@ -182,10 +190,12 @@ def main():
     parser.add_argument('-v', '--verbose', dest='verbose', action='count', default=0, help='print messages')
 
     options = parser.parse_args()
-    try:
-        options.PID = int(options.PID)
-    except:
-        raise ValueError("Invalid format of PID: {}".format(options.PID))
+
+    if options.PID is not None:  # string -> integer conversion
+        try:
+            options.PID = int(options.PID)
+        except:
+            raise ValueError("Invalid format of PID: {}".format(options.PID))
 
     # if len(args) < 1:
     #     print('Usage: '+usage_msg)

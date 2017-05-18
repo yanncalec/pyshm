@@ -5,28 +5,24 @@
 
 
 
-Documentation of pyshm and OSMOS_pkg
+Documentation of pyshm
 ====================================
-
-.. automodule:: pyshm
 
 Contents:
 
-.. toctree::
-   :maxdepth: 3
+  .. toctree::
+    :maxdepth: 2
 
-   intro
-  ..  preproc
-  ..  decomp
-  ..  script
+    intro
 
 
-This document describes the mathematical aspect of the project conducted by
-`Sivienn <http://www.sivienn.com/>`_ for `Osmos <http://www.osmos-group.com/>`_ and serves as a manual for the usage of the library pyshm.
+This document describes the python library pyshm developped by
+`Sivienn <http://www.sivienn.com/>`_ for `Osmos <http://www.osmos-group.com/>`_.
 
+:py:mod: pyshm
 
-.. .. automodule:: src
-..    :members:
+.. automodule:: pyshm.OSMOS
+    :members:
 
 
 Indices and tables

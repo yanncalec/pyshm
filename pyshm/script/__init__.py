@@ -190,9 +190,9 @@ def static_data_analysis_template(func):
 
 
 
-from . import Download_data
-from . import Preprocess_static_data
-from . import Deconv_static_data
+# from . import Download_data
+# from . import Preprocess_static
+# from . import Deconv_static
 
 # from .Download_data import Download_data
 # from .Preprocess_static_data import Preprocess_static_data

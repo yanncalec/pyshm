@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-"""Plot and interpret the data or results of analysis.
+"""Post-process of the results of analysis.
 """
 
 import sys, os, argparse
@@ -8,16 +8,16 @@ import numpy as np
 import scipy as sp
 import pandas as pd
 import pickle, json
-from pyshm import OSMOS, Tools, Stat
+from pyshm import OSMOS, Tools, Stat, Models
 from pyshm.script import static_data_analysis_template, examplestyle, warningstyle, load_result_of_analysis, MyEncoder, to_json
 from joblib import Parallel, delayed
 
-import matplotlib
-# matplotlib.use("qt5agg")
-import matplotlib.pyplot as plt
-# import matplotlib.colors as colors
-import mpld3
-plt.style.use('ggplot')
+# import matplotlib
+# # matplotlib.use("qt5agg")
+# import matplotlib.pyplot as plt
+# # import matplotlib.colors as colors
+# import mpld3
+# plt.style.use('ggplot')
 
 
 def Hurstfunc(loc, X, mwsize, hrng):
@@ -50,7 +50,7 @@ __script__ = __doc__
 # __warning__ = "Warning:" + warningstyle("\n ")
 
 examples = []
-examples.append(["%(prog)s Results.json -o", "Apply preprocessing with default parameters on the project of PID 153 (the project lied in the database directory DBDIR), plot the static data in a subfolder named figures/Static and print messages."])
+examples.append(["%(prog)s OUTDIR/153/../Results.json -o", "Apply analysis with default parameters on the project of PID 153 (the project lied in the database directory DBDIR), plot the static data in a subfolder named figures/Static and print messages."])
 __example__ = "Some examples of use (change the path seperator '/' to '\\' on Windows platform):" + "".join([examplestyle(x) for x in examples])
 
 
@@ -67,12 +67,12 @@ def main():
     # mainparser.add_argument('outdir', type=str, default=None, help='directory where results (figures and data files) will be saved.')
     mainparser.add_argument('-v', '--verbose', dest='verbose', action='count', default=0, help='print messages.')
     mainparser.add_argument('-o', '--overwrite', dest='overwrite', action='store_true', default=False, help='overwrite on the input file.')
-    mainparser.add_argument('--drophead', dest='drophead', type=int, default=3*24*30, help='drop head of input data in computation of subspace projection (default=3*24*30).', metavar='integer')
 
     proj_opts = mainparser.add_argument_group('Options for subspace projection')  # projection
     proj_opts.add_argument('--cdim', dest='cdim', type=int, default=None, help='dimension of the subspace (default=None), no subspace projection if set to 0, if given vthresh will be ignored ', metavar='integer')
     proj_opts.add_argument('--vthresh', dest='vthresh', type=float, default=0.9, help='relative threshold for subspace projection (default=0.9).', metavar='float')
     proj_opts.add_argument("--corrflag", dest="corrflag", action="store_true", default=False, help="use correlation matrix in subspace projection.")
+    proj_opts.add_argument('--drophead', dest='drophead', type=int, default=3*24*30, help='drop the begining of the input data in the computation of subspace projection (default=3*24*30).', metavar='integer')
 
     lstat_opts = mainparser.add_argument_group('Options for local statistics')  # local statistics
     lstat_opts.add_argument('--mad', dest='mad', action='store_true', default=False, help='use median based estimator (default: use empirical estimator).')
@@ -129,7 +129,7 @@ def main():
         options.cdim = min(len(alocs)-1, options.cdim)  # special case
     Yerr0 = np.asarray(Yerr).T
     # throw away the first (two) months
-    Yssp0, (U,S), options.cdim = Stat.ssproj(Yerr0, cdim=options.cdim, vthresh=options.vthresh, corrflag=options.corrflag, drophead=options.drophead)
+    Yssp0, (U,S), options.cdim = Models.ssproj(Yerr0, cdim=options.cdim, vthresh=options.vthresh, corrflag=options.corrflag, drophead=options.drophead)
     Yssp = pd.DataFrame(Yssp0.T, columns=alocs, index=Tidx)
     Yerp0 = Yerr0 - Yssp0  # error of projection, which will be used to analysis
     Yerp = pd.DataFrame(Yerp0.T, columns=alocs, index=Tidx)

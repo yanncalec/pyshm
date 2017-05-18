@@ -64,7 +64,7 @@ def _Deconv_static_data(Xcpn, Ycpn, options):
         Mxd: objects of deconvolution model
     """
 
-    from pyshm import Stat
+    from pyshm import Stat, Models
     import numpy as np
     import pandas as pd
 
@@ -107,18 +107,18 @@ def _Deconv_static_data(Xcpn, Ycpn, options):
     #     if options.verbose:
     #         print("\tProcessing the location {}...".format(aloc))
     #     if staticflag:
-    #         yprd, (amat, *_) = Stat.deconv(Yvar[[n],:], Xvar, options.lag, dord=options.dord, pord=options.pord, snr2=options.snr2, clen2=options.clen2, dspl=options.dspl, sidx=options.sidx, Ntrn=options.Ntrn, vthresh=options.vthresh, corrflag=options.corrflag, Nexp=options.Nexp)
+    #         yprd, (amat, *_) = Models.deconv(Yvar[[n],:], Xvar, options.lag, dord=options.dord, pord=options.pord, snr2=options.snr2, clen2=options.clen2, dspl=options.dspl, sidx=options.sidx, Ntrn=options.Ntrn, vthresh=options.vthresh, corrflag=options.corrflag, Nexp=options.Nexp)
     #         Amat[aloc] = amat
     #     else:
     #         smoothflag = options.kalman.upper=="SMOOTHER"
-    #         (yprd,ycov), ((amat, acov), *_) = Stat.deconv_bm(Yvar[[n],:], Xvar, options.lag, dord=options.dord, pord=options.pord, sigmaq2=options.sigmaq2, sigmar2=options.sigmar2, x0=0., p0=1., smooth=smoothflag, sidx=options.sidx, Ntrn=options.Ntrn, vthresh=options.vthresh, corrflag=options.corrflag)
+    #         (yprd,ycov), ((amat, acov), *_) = Models.deconv_bm(Yvar[[n],:], Xvar, options.lag, dord=options.dord, pord=options.pord, sigmaq2=options.sigmaq2, sigmar2=options.sigmar2, x0=0., p0=1., smooth=smoothflag, sidx=options.sidx, Ntrn=options.Ntrn, vthresh=options.vthresh, corrflag=options.corrflag)
     #         Amat[aloc] = pd.DataFrame(np.squeeze(amat), columns=options.alocs, index=Tidx)
     #         Acov[aloc] = pd.DataFrame(np.asarray([np.diag(P) for P in acov]), columns=options.alocs, index=Tidx)
     #         # print(amat.shape, cvec.shape, err.shape, sig.shape)
     #         Yprd0.append(yprd[0])
     #         Ycov0.append(ycov[0])
     if staticflag:
-        Yprd0, Amat, Amatc = Stat.deconv(Yvar, Xvar, options.lag, dord=options.dord, pord=options.pord, snr2=options.snr2, clen2=options.clen2, dspl=options.dspl, sidx=options.sidx, Ntrn=options.Ntrn, vthresh=options.vthresh, Nexp=options.Nexp)
+        Yprd0, Amat, Amatc = Models.deconv(Yvar, Xvar, options.lag, dord=options.dord, pord=options.pord, snr2=options.snr2, clen2=options.clen2, dspl=options.dspl, sidx=options.sidx, Ntrn=options.Ntrn, vthresh=options.vthresh, Nexp=options.Nexp)
 
         Yprd = pd.DataFrame(Yprd0.T, columns=options.alocs, index=Tidx)
         Yerr0 = Yvar - Yprd0  # error of prediction
@@ -127,7 +127,7 @@ def _Deconv_static_data(Xcpn, Ycpn, options):
     else:
         smoothflag = options.kalman.upper() == "SMOOTHER"
         # # full-vectorial version: time and space consuming
-        # (Yprd0,Ycov), ((Amat,Acov), *_) = Stat.deconv_bm(Yvar, Xvar, options.lag, dord=options.dord, pord=options.pord, sigmaq2=options.sigmaq2, sigmar2=options.sigmar2, x0=0., p0=1., smooth=smoothflag, sidx=options.sidx, Ntrn=options.Ntrn, vthresh=options.vthresh, corrflag=options.corrflag)
+        # (Yprd0,Ycov), ((Amat,Acov), *_) = Models.deconv_bm(Yvar, Xvar, options.lag, dord=options.dord, pord=options.pord, sigmaq2=options.sigmaq2, sigmar2=options.sigmar2, x0=0., p0=1., smooth=smoothflag, sidx=options.sidx, Ntrn=options.Ntrn, vthresh=options.vthresh, corrflag=options.corrflag)
         # Yerr0 = Yvar - Yprd0  # error of prediction
         # Yprd = pd.DataFrame(Yprd0.T, columns=options.alocs, index=Tidx)
         # Yerr = pd.DataFrame(Yerr0.T, columns=options.alocs, index=Tidx)
@@ -140,7 +140,7 @@ def _Deconv_static_data(Xcpn, Ycpn, options):
         for n, aloc in enumerate(options.alocs):
             if options.verbose:
                 print("\tProcessing the location {}...".format(aloc))
-            yprd, (amat,acov), (amatc,acovc) = Stat.deconv_bm(Yvar[[n],:], Xvar, options.lag, dord=options.dord, pord=options.pord, sigmaq2=options.sigmaq2, sigmar2=options.sigmar2, x0=0., p0=1., smooth=smoothflag, sidx=options.sidx, Ntrn=options.Ntrn, vthresh=options.vthresh, cdim=options.cdim)
+            yprd, (amat,acov), (amatc,acovc) = Models.deconv_bm(Yvar[[n],:], Xvar, options.lag, dord=options.dord, pord=options.pord, sigmaq2=options.sigmaq2, sigmar2=options.sigmar2, x0=0., p0=1., smooth=smoothflag, sidx=options.sidx, Ntrn=options.Ntrn, vthresh=options.vthresh, cdim=options.cdim)
             # print(yprd.shape, ycov.shape, amat.shape, acov.shape)
             Yprd0.append(yprd)
             # Amat0.append(np.squeeze(amat))

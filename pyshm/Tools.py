@@ -16,7 +16,7 @@ import datetime
 import inspect
 from functools import wraps
 
-# from . import Stat
+from . import Stat
 
 #### Functional operators ####
 
@@ -141,7 +141,7 @@ def circular_convolution(x, y):
     assert(x.ndim == y.ndim == 1)  # only operate on 1d arrays
 
     N = max(len(x), len(y))
-    res = fft.ifft(fft.fft(x, N) * fft.fft(y, N))  # convolution by fft
+    res = np.fft.ifft(np.fft.fft(x, N) * np.fft.fft(y, N))  # convolution by fft
 
     if any(np.iscomplex(x)) or any(np.iscomplex(y)):  # take the real part
         return res
@@ -364,18 +364,17 @@ def L_filter_boundary(X, wsize=1):
 #### Datetime and time-series related ####
 
 def time_findgap(T0, dtuple=(0, 60*60, 0)):
-    """
-    Find gaps in a time-stamp series.
+    """Find gaps in a list of timestamps.
 
     Args:
-        T0: list of time-stamp
+        T0: pandas DatetimeIndex
         dtuple: a tuple of (day, second, microsecond) that define the minimal size of the gap
     Returns:
         G: index of gaps
     """
     dt = datetime.timedelta(*dtuple)  # size of the gap
 
-    G = np.asarray(np.where(np.diff(T0) > dt)[0]+1, dtype=int)
+    G = np.asarray(np.where(np.diff(T0.to_pydatetime()) > dt)[0]+1, dtype=int)
     return G
     # # G = np.int32(np.hstack([0, G, len(T0)]))
     #
@@ -511,48 +510,6 @@ def interpl_nans(X0):
     return X
 
 
-def interpl_timeseries(T0, Y0, dtuple=(0,60*60,0), method="spline", rounded=False, **kwargs):
-    """Regular resampling of a time-series by interpolation.
-
-    Args:
-        T0 (list of datetime objects): the equivalent of the sampling points in the usual interpolate function
-        Y0 (1d array): values of the function at T0
-        dtuple: a tuple of (day, second, microsecond) that define the length of the resampling time step
-    Returns:
-        Y1, T1 : Interpolated values and resampled time-series
-    """
-
-    # time sampling step
-    dt = datetime.timedelta(*dtuple)
-
-    # Time range of interpolation
-    if rounded: # beginning of the interpolation interval is the hour next to T0[0]
-        t_start, t_end = time_ceil(T0[0]), time_floor(T0[-1])
-    else:
-        t_start, t_end = T0[0], T0[-1]
-
-    nbTime = int(np.floor((t_end-t_start)/dt))+1
-    if nbTime <=0 :
-        raise Exception("Insufficient length of data: {}.".format(nbTime))
-
-    dT0 = np.asarray([(t-t_start)/dt for t in T0])
-    dT1 = np.arange(0, nbTime)
-    T1 = [t_start + n*dt for n in dT1]
-
-    # print(dT0, dT1)
-    # print(T1)
-    # print(dT0[-1], dT1[-1])
-
-    if method=="spline":
-        Yfunc = sp.interpolate.interp1d(dT0, Y0, kind="slinear")  # use "linear", "slinear" can result in artefacts (a periodicity of 37 days due to accumulation of 97 seconds per hour)
-    elif method=="gp":
-        Yfunc = lambda T: gp_interpl(dT0, Y0, dT1, **kwargs)
-    else:
-        raise TypeError("Unknown interpolation method")
-
-    return Yfunc(dT1), T1
-
-
 def gp_interpl(x_obs, y_obs, x_pred, nugget=1e-9):
     """Interpolation of missing data using GP
 
@@ -637,7 +594,7 @@ def shrinkage_percentile(X0, thresh, soft=True):
         return np.zeros_like(X0)
     else:
         v = Stat.percentile(np.abs(X0), thresh)
-        return shrinkage(X, v, soft=soft)
+        return shrinkage(X0, v, soft=soft)
 
 
 #### Outliers and detection ####
@@ -944,3 +901,17 @@ safe_norm = nan_safe(la.norm)
 cummax = along_axis(cumop(nan_safe(np.max)))
 cummin = along_axis(cumop(nan_safe(np.min)))
 cumstd = along_axis(cumop(nan_safe(np.std)))
+
+#### Plot ####
+def plot(X0, T=None, mask=None):
+    assert X0.ndim == 1
+    X = X0.copy()
+    if mask is not None:
+        X[mask] = np.nan
+    from matplotlib import pyplot as plt
+    fig, axa = plt.subplots(1,1,figsize=(20,5))
+    if T is not None:
+        axa.plot(T, X)
+    else:
+        axa.plot(X)
+    return fig, axa

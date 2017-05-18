@@ -115,7 +115,7 @@ setup(
     ],
 
     # What does your project relate to?
-    keywords='structure health monitoring, construction engineering',
+    keywords='structure health monitoring, construction engineering, thermal analysis',
 
     # You can just specify the packages manually here if your project is
     # simple. Or you can use find_packages().
@@ -174,10 +174,10 @@ setup(
     entry_points={
         'console_scripts': [
             'osmos_download = pyshm.script.Download_data:main',
-            'osmos_preprocess = pyshm.script.Preprocess_static_data:main',
-            'osmos_deconv = pyshm.script.Deconv_static_data:main',
-            'osmos_thermal = pyshm.script.Thermal_static_data:main',
-            'osmos_analyse = pyshm.script.Analyse_results:main',
+            'osmos_preprocess = pyshm.script.Preprocess_static:main',
+            'osmos_deconv = pyshm.script.Deconv_static:main',
+            'osmos_thermal = pyshm.script.Thermal_static:main',
+            'osmos_postprocess = pyshm.script.Postprocess_static:main',
             'osmos_plot = pyshm.script.Plot:main',
         ],
     },

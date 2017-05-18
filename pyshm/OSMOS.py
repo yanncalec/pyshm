@@ -1,4 +1,4 @@
-"""Collection of functions related to OSMOS data I/O
+"""Collection of functions related to I/O and preprocessing of OSMOS data
 """
 
 import json
@@ -16,11 +16,6 @@ import colorama
 from . import Tools
 # import Tools
 
-# Some nomenclature rules:
-# dbdir: database directory
-# projdir: project directory
-# datadir: location directory
-
 class LIRIS:
     """Class for describing a LIRIS object
     """
@@ -29,16 +24,17 @@ class LIRIS:
 
 
 def update_LIRIS_data_by_project(token, session, PID, projdir, endtime=None, verbose=0):
-    """Update the database (by requesting from the OSMOS's server).
+    """Update the local database by requesting the OSMOS's server.
 
     Args:
-        token, session: see Download_data.py.
+        token: see Download_data.py.
+        session: see Download_data.py.
         PID (int): project key id.
         projdir (str): project directory.
-        endtime (str): fetch data til this time, if not given fetch til today.
+        endtime (str): fetch data til this time, by default fetch til today.
         verbose (int): print message.
     Returns:
-        A bool variable indicating new data.
+        A bool variable indicating the presence of new data.
     """
 
     payload = {"token": token,
@@ -148,14 +144,17 @@ def update_LIRIS_data_by_project(token, session, PID, projdir, endtime=None, ver
                                         fp, protocol=pickle.HIGHEST_PROTOCOL)
         return nflag, Liris
     else:
+        # print('result' in response0.keys())
+        # print(response0['result'] == 'SUCCESS')
+        # print(response0['data'])
         raise Exception('Failed response from the server or empty project.')
 
 
 def to_valid_time_format(f):
-    """Transform a datetime object to a string which can be used as a filename on Windows (and other systems).
+    """Transform a datetime object to a string so that it can be used as a filename on Windows (and other systems).
 
-    Example:
-    '2016-12-11 17:14:30' is transformed to '2016-12-11-17H14M30S'
+    Examples:
+        '2016-12-11 17:14:30' will be transformed to '2016-12-11-17H14M30S'
     """
     g = str(f).replace(' ', '-').replace(':','H', 1).replace(':','M', 1)+'S'#.replace('.','S', 1)
     return g
@@ -165,9 +164,9 @@ def assemble_to_pandas(projdir):
     """Assemble splitted data into a single pandas datasheet.
 
     Args:
-        projdir (string): folder where the raw splitted OSMOS data are stored. This folder is organized in sub folders named by the location key id.
+        projdir (str): folder where the raw splitted data are stored. This folder is organized in sub folders named by the location key id.
     Returns:
-        A pickle file named Raw.pkl in the given projdir.
+        A pickle file named ``Raw.pkl`` in the given projdir.
     """
     pnames = glob.glob(os.path.join(projdir, '*'))
 
@@ -207,17 +206,16 @@ def assemble_to_pandas(projdir):
         raise Exception('Empty project.')
 
 
-def raw2pandas(Rawdata):
+def raw2pandas(X):
     """Convert the raw OSMOS data to pandas format.
 
     Args:
-        Rawdata: a list of tuples (Time, Temperature, Elongation , Type). These are the data obtained directly from OSMOS server, and Time is a string.
-
+        X: a list of tuples *(Time, Temperature, Elongation, Type)*. These are the data obtained directly from OSMOS server. Note that the field `Time` here is a string.
     Returns:
-        Data: a pandas datasheet with the fields 'Temperature', 'Elongation', 'Type'.
+        a pandas datasheet with the fields 'Temperature', 'Elongation', 'Type'.
     """
 
-    toto=pd.DataFrame(data=Rawdata, columns=['Time', 'Temperature', 'Elongation', 'Type'])
+    toto=pd.DataFrame(data=X, columns=['Time', 'Temperature', 'Elongation', 'Type'])
     ts=pd.to_datetime(toto.Time)  # convert from string to timestamps
     ts.name=None  # remove the name field
 
@@ -235,10 +233,11 @@ def static_data_preprocessing(X0,
     """Apply preprocessings routines on static data of a sensor.
 
     This function applies the following pre-processings (by order):
-    - remove wrong values due to the synchronisation problem (optional)
-    - remove obvious outliers (optional)
-    - resampling at a regular time step
-    - detect step jumps (optional)
+
+    1. remove wrong values due to the synchronisation problem (optional)
+    2. remove obvious outliers (optional)
+    3. resampling at a regular time step
+    4. detect step jumps (optional)
 
     Args:
         X0 (pandas DataFrame): containing the field 'Time', 'Temperature', 'Elongation'.
@@ -248,14 +247,15 @@ def static_data_preprocessing(X0,
         tflag (bool): if True the temperature data will be processed also
         nh (int): gaps larger than nh hours will be marked as nan
     Returns:
-        A pandas DataFrame sheet containing the field 'Temperature', 'Elongation', 'Type'.
-        'Type' is a N-bit marker of the state of the current time-stamp:
-            The first bit indicates if the value is original or interpolated
-            The second bit indicates that no original data exist in 1 hour around
-            The third bit indicates a jump of the value of deformation
-        for example,
-            Type = 000: means the value of the current time-stamp is original
-            Type = 011: means the value of the current time-stamp is interpolated from points outside the 1 hour interval
+        A pandas DataFrame sheet containing the field 'Temperature', 'Elongation' and 'Type', where 'Type' is a N-bit marker of the state of the current time-stamp
+
+        * The first bit indicates if the value is original or interpolated
+        * The second bit indicates that no original data exist in 1 hour around
+        * The third bit indicates a jump of the value of deformation
+
+        Example:
+            * Type = 000: means the value of the current time-stamp is original
+            * Type = 011: means the value of the current time-stamp is interpolated from points outside the 1 hour interval
     """
 
     Temp0 = np.asarray(X0['Temperature'], dtype=np.float64).copy() # temperature
@@ -315,13 +315,15 @@ def resampling_time_series(X, rsp='H', m=6):
     """Resampling of time series with a regular step.
 
     Args:
-        X (pandas DataFrame or Series): input time series, X.index must be object of DateTimeIndex
-        rsp (string): step of resampling, by default use 'H' which stands for 'hour'.
+        X (pandas DataFrame or Series): input time series, X.index must be object of DateTimeIndex.
+        rsp (str): step of resampling, by default use 'H' which stands for 'hour'.
         m (int): resampling is considered as invalid if no original data exist in an interval of m points
     Returns:
-        S (pandas DataFrame or Series): resampled time series
-        Rtsx (pandas DateTimeIndex): timestamps of resampled points
-        Nidx: timestamps where no original observations exist on an interval of length m
+        the following variables
+
+        - S (pandas DataFrame or Series): resampled time series
+        - Rtsx (pandas DateTimeIndex): timestamps of resampled points
+        - Nidx: timestamps where no original observations exist on an interval of length m
     """
     Rtsx = pd.date_range(X.index[0].ceil(rsp), X.index[-1].floor(rsp), freq=rsp)
 
@@ -345,20 +347,22 @@ def resampling_time_series(X, rsp='H', m=6):
     return S, Rtsx, Ntsx
 
 
-def load_raw_data(fname, staticonly=True):
+def load_raw_data(fname, datatype='static'):
     """Load raw data from a given file.
 
-    Raw data are in pandas format and containing only three fields: Temperature,
-    Elongation, Type.
+    Note:
+        Raw data are stored in pandas format and contain only three fields: 'Temperature', 'Elongation', and 'Type'.
 
     Args:
-        fname (string): pickle file name containing assembled Osmos data
+        fname (str): name of the pickle file containing assembled Osmos data
+        datatype (str): type of data to be loaded, can be 'static', 'dynamic', or 'all'
     Returns:
-        Rdata (dict): raw data
-        Sdata (dict): static data
-        Ddata (dict): dynamic data (elongation only, no temperature)
-        Locations (list): location keyid of sensors
+        the following variables
 
+        - Rdata (dict): raw data
+        - Sdata (dict): static data, empty if datatype='dynamic'
+        - Ddata (dict): dynamic data (elongation only, no temperature), empty if datatype='static'
+        - Locations (list): location keyid of sensors
     """
     with open(fname, 'rb') as fp:
         toto = pickle.load(fp)
@@ -373,22 +377,25 @@ def load_raw_data(fname, staticonly=True):
     Locations.sort()
 
     Sdata, Ddata = {}, {}
-    for loc, Data in Rdata.items():
-        Tidx1 = Data.Type==1
-        toto = Data[Tidx1] if np.any(Tidx1) else []
-        Sdata[loc] = toto.drop('Type',1)  # Drop the column 'Type'
-        # Sdata[loc] = toto
-
+    for loc, val in Rdata.items():
+        # Extraction of static data
+        if datatype.upper() in ['STATIC', 'ALL']:
+            Tidx1 = val['Type']==1
+            Sdata[loc] = []
+            if np.any(Tidx1): # if containing static data
+                Sdata[loc] = val[Tidx1].drop('Type',1)  # Drop the column 'Type'
         # Extraction of dynamic data
-        if not staticonly:
-            Tidx2 = Data.Type==2
+        if datatype.upper() in ['DYNAMIC', 'ALL']:
+            Tidx2 = val['Type']==2
             Ddata[loc] = []
             if np.any(Tidx2): # if containing dynamic data
-                Didx = Tools.time_findgap(Data[Tidx2].index.to_pydatetime(), dtuple=(0,0,40000))
-                Didx = np.int32(np.hstack([0, Didx, len(Tidx2)]))
-                for s in range(len(Didx)-1):
-                    Ddata[loc].append(Data[Tidx2]['Elongation'].iloc[Didx[s]:Didx[s+1]]) # add the first event
-
+                # 40000 microseconds = 0.04 second = 2 samples
+                # dynamic data are sampled at 20 milliseconds (50Hz)
+                Didx = Tools.time_findgap(val[Tidx2].index, dtuple=(0,0,20000))
+                for sidx in np.split(np.arange(np.sum(Tidx2)), Didx):
+                    Ddata[loc].append(val[Tidx2]['Elongation'].iloc[sidx]) # add the first event
+        if datatype.upper() not in ['STATIC', 'DYNAMIC', 'ALL']:
+            raise TypeError('{}: unknown type of data'.format(datatype))
     return Rdata, Sdata, Ddata, Locations
 
 
@@ -396,23 +403,22 @@ def load_static_data(fname):
     """Load preprocessed static data from a given file.
 
     This function loads a pickle file that contains preprocessed static data in pandas format and
-    extract the regulaly resampled values.
+    extract the resampled values.
 
     Args:
-        fname (string): name of the pickle file
+        fname (str): name of the pickle file
     Returns:
-        Data (dict): static data of all sensors
-        Tall (pandas DataFrame): concatenated temperature of all sensors
-        Eall (pandas DataFrame): concatenated elongation of all sensors
-        Locations (list): location key IDs of sensors
+        the following variables
 
-    Remark:
-        1. Preprocessed static data contain only three fields: [Temperature,
-        Elongation, Type], which are identical to the raw data. In order to
-        distinguish a pickle from of preprocessed data from that of raw data we
-        can use the key 'LIRIS' which is present only in the raw data file (cf. assemble_to_pandas())
-        as indicator.
-        2. The outputs Tall, Eall may be longer than Data due to forced alignment.
+        - Data (dict): static data of all sensors
+        - Tall (pandas DataFrame): concatenated temperature of all sensors
+        - Eall (pandas DataFrame): concatenated elongation of all sensors
+        - Locations (list): location key IDs of sensors
+
+    Note:
+
+        - Preprocessed static data contain only three fields: [Temperature, Elongation, Type], which are identical to the raw data. In order to distinguish a pickle file of preprocessed data from that of raw data we can use the key 'LIRIS' which is present only in the raw data file (cf. :func:`assemble_to_pandas`) as indicator.
+        - The outputs Tall, Eall may be longer than Data due to forced alignment.
     """
 
     with open(fname, 'rb') as fp:
@@ -466,7 +472,7 @@ def concat_mts(Data, field):
 
     Args:
         Data (dict): dictionary of pandas datasheet
-        field (string): e.g., 'Temperature' or 'Elongation'
+        field (str): name of the field to be concatenated, e.g., 'Temperature' or 'Elongation'
 
     Returns:
         Concatenated datasheet.
@@ -491,10 +497,11 @@ def trend_seasonal_decomp(X0, mwsize=24, method='mean', kzord=1, causal=False, l
 
     Args:
         X0: pandas DataFrame or 1d numpy array
-        mwsize...causal: see Tools.KZ_filter()
+        mwsize...causal: see :func:`Tools.KZ_filter`
         luwsize (int): size of LU filter window
     Returns:
-        Xtrd, Xsnl: trend and seasonal components
+        ..
+        - Xtrd, Xsnl: trend and seasonal components
     """
     # if not (isinstance(X0, pd.DataFrame)):
     #     raise TypeError('Input array must be a pandas DataFrame')
@@ -539,7 +546,8 @@ def common_time_range(X0):
     Args:
         X0 (dict): X0[loc] is the pandas datasheet of data of the sensor loc.
     Returns:
-        t0, t1: timestamps of the real time range.
+        ..
+        - t0, t1: timestamps of the real time range.
     """
     t0 = np.max([v.index[0] for k, v in X0.items()])
     t1 = np.min([v.index[-1] for k, v in X0.items()])
@@ -566,7 +574,8 @@ def truncate_static_data(fname, timerange):
         fname (str): name of the pickle file containing preprocessed static data
         timerange (tuple of str): starting and ending timestamp of the data
     Returns:
-        Tall, Eall, Midx: truncated temperature, elongation and indicator of missing values
+        ..
+        - Tall, Eall, Midx: truncated temperature, elongation and indicator of missing values
     """
     # Load preprocessed static data
     Data0, Tall0, Eall0, Locations = load_static_data(fname)
@@ -594,9 +603,11 @@ def prepare_static_data(fname, timerange=(None,None), mwsize=24, kzord=1, method
         mwsize...method: see trend_seasonal_decomp()
         timerange (tuple of str): starting and ending timestamp of the data
     Returns:
-        (Tall, Tsnl, Ttrd): truncated temperature, its seasonal and trend components
-        (Eall, Esnl, Etrd): truncated elongation, its seasonal and trend components
-        Midx (pandas DataFrame): indicator of missing values
+        the following variables
+
+        - (Tall, Tsnl, Ttrd): truncated temperature, its seasonal and trend components
+        - (Eall, Esnl, Etrd): truncated elongation, its seasonal and trend components
+        - Midx (pandas DataFrame): indicator of missing values
 
     """
     # beginning and ending timestamps
@@ -627,74 +638,3 @@ def prepare_static_data(fname, timerange=(None,None), mwsize=24, kzord=1, method
     #         # raise ValueError("No significant seasonal component detected.")
 
     return (Tall, Tsnl, Ttrd), (Eall, Esnl, Etrd), Midx
-
-
-#### obsolete
-def remove_close_samples(X, dT=20*1000):
-    """ Remove from a time series the samples of timestamps closer than dT.
-
-    Args:
-        X (pandas DataFrame of Series): input time series, X.index must be object of DateTimeIndex
-        dT (int): in micro second
-    """
-    Tidx = X.index.to_pydatetime() # convert to python date time
-    cflag = np.diff(Tidx) > datetime.timedelta(0, 0, dT)
-    Didx = np.where(cflag)[0]+1 # choice of threshold
-#     Didx = np.hstack((Didx[0]-1, Didx))
-    return X.iloc[Didx]
-
-def pandas2list(X0):
-    """Convert a pandas DataFrame to list.
-    """
-    if isinstance(X0, list):
-        T0 = [x.Time.tolist() for x in X0]
-        Xt0 = [x.Temperature.tolist() for x in X0]
-        Xe0 = [x.Elongation.tolist() for x in X0]
-
-        return Xt0, Xe0, T0
-    else:
-        return X0.Temperature.tolist(),  X0.Elongation.tolist(),  X0.Time.tolist()
-
-def choose_component(Data0, cnames):
-    """Select specific component from a pandas datasheet.
-
-    This function applies on the data genenrated by OSMOS_pkg.Decomposition_of_static_data(), and is used by Analysis_of_static_data_ARX().
-    """
-    idx = cnames.find('-')
-    if idx<0:
-        raise Exception('Unrecognized component string')
-
-    componentx = cnames[:idx]
-    componenty = cnames[idx+1:]
-
-    if componentx == 'All':
-        Xraw = Data0['Temperature'].copy()
-    elif componentx == 'AllDiff':
-        Xraw = Data0['Temperature'].diff()
-    elif componentx == 'Seasonal':
-        Xraw = Data0['Temperature_seasonal'].copy()
-    elif componentx == 'SeasonalDiff':
-        Xraw = Data0['Temperature_seasonal'].diff()
-    elif componentx == 'Trend':
-        Xraw = Data0['Temperature_trend'].copy()
-    elif componentx == 'TrendDiff':
-        Xraw = Data0['Temperature_trend'].diff()
-    else:
-        raise NotImplementedError('Unknown type of component: {}'.format(componentx))
-
-    if componenty == 'All':
-        Yraw = Data0['Elongation'].copy()
-    elif componenty == 'AllDiff':
-        Yraw = Data0['Elongation'].diff()
-    elif componenty == 'Seasonal':
-        Yraw = Data0['Elongation_seasonal'].copy()
-    elif componenty == 'SeasonalDiff':
-        Yraw = Data0['Elongation_seasonal'].diff()
-    elif componenty == 'Trend':
-        Yraw = Data0['Elongation_trend'].copy()
-    elif componenty == 'TrendDiff':
-        Yraw = Data0['Elongation_trend'].diff()
-    else:
-        raise NotImplementedError('Unknown type of component: {}'.format(componenty))
-
-    return Xraw, Yraw
