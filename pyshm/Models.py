@@ -15,8 +15,7 @@ from . import Tools, Stat, Kalman
 ########## Utility functions ##########
 
 def _gp_cov_matrix(Nt, snr2, clen2):
-    """Construct the covariance matrix of a Gaussian process of covariance function
-        f(x)=exp(-a*x**2)
+    """Construct the covariance matrix of a Gaussian process of covariance function f(x)=exp(-a*x**2)
     """
     f = lambda x: np.exp(-(x**2)/clen2)
     C = snr2 * f(np.arange(Nt))
@@ -46,20 +45,26 @@ def deconv(Y0, X0, lag, dord=1, pord=1, snr2=None, clen2=None, dspl=1, sidx=0, N
     """Deconvolution of multivariate time series using a vectorial FIR filter by GLS.
 
     We look for the kernel convolution matrices A of the model
+
         Y_t = A (*) X_t + P_t
-    where A = [A_0... A_{p-1}] are matrices, (*) denotes the convolution, P_t is a polynomial Gaussian process of order pord. We estimate A by Generalized Least-Square (GLS) by differentiating the data dord times.
+
+    where A=[A_0... A_{p-1}] are matrices, (*) denotes the convolution, P_t is a polynomial Gaussian process of order `pord`. We estimate A by Generalized Least-Square (GLS) by differentiating the data dord times.
 
     Args:
         Y0 (2d array): observations, each row is a variable and each column is an observation
         X0 (2d array): inputs, each row is a variable and each column is an observation
+        lag (int): length of the convolution matrices A
         dord (int): order of derivative
         pord (int): order of polynomial trend
         sidx (int): starting index of the training period
         Ntrn (int): length of the training period
         dspl (int): down-sampling rate
         snr2, clen2 (float): signal to noise ratio and correlation length of the polynomial Gaussian process
-        vthresh (float): threshold in dimension reduction
+        vthresh (float): threshold in dimension reduction, no reduction if set to 0.
+        cdim (int): desired dimension, same effect as vthresh, no reduction if set to None.
         Nexp (int): number of experiments in the RANSAC algorithm, no RANSAC if Nexp==0
+    Returns:
+        Yprd, Amat, Amatc: prediction, estimation of the matrix and estimation of the dimension-reduced matrix
     """
     assert X0.ndim == Y0.ndim == 2
     assert X0.shape[1] == Y0.shape[1]
@@ -67,10 +72,10 @@ def deconv(Y0, X0, lag, dord=1, pord=1, snr2=None, clen2=None, dspl=1, sidx=0, N
 
     Nt = X0.shape[1]  # length of observations
 
-    # the part of external input
+    # external input
     dX = np.zeros_like(X0) * np.nan; dX[:,dord:] = np.diff(X0, dord, axis=-1)
     Xvar0 = Tools.mts_cumview(dX, lag)  # cumulative view for convolution
-    # the part of polynominal trend
+    # polynominal trend
     Xvar1 = Tools.dpvander(np.arange(Nt)/Nt, pord, dord)  # division by Nt: normalization for numerical stability
     Xvar = np.vstack([Xvar0, Xvar1[:-1,:]])  #[:-1,:] removes the constant trend which may cause non-invertible covariance matrix. If the constant trend is kept here, Yprd at the end of this function should be modified accordingly like this:
     # Amat0 = Amat[:, :-(pord-dord+1)] ...
@@ -129,6 +134,24 @@ def deconv(Y0, X0, lag, dord=1, pord=1, snr2=None, clen2=None, dspl=1, sidx=0, N
 
 def deconv_bm(Y0, X0, lag, dord=1, pord=1, sigmaq2=10**-6, sigmar2=10**-3, x0=0., p0=1., smooth=False, sidx=0, Ntrn=None, vthresh=0., cdim=None): # rescale=True
     """Deconvolution of multivariate time series using a vectorial FIR filter by Kalman filter.
+
+    Args:
+        Y0 (2d array): observations, each row is a variable and each column is an observation
+        X0 (2d array): inputs, each row is a variable and each column is an observation
+        lag (int): length of the convolution matrices A
+        dord (int): order of derivative
+        pord (int): order of polynomial trend
+        sidx (int): starting index of the training period
+        Ntrn (int): length of the training period
+        vthresh (float): threshold in dimension reduction, no reduction if set to 0.
+        cdim (int): desired dimension, same effect as vthresh, no reduction if set to None.
+        sigmaq2 (float): variance of innovation noise
+        sigmar2 (float): variance of observation noise
+        x0 (float): initial state (a constant vector)
+        p0 (float): variance of the initial state
+        smooth (bool): if True apply Kalman smoother
+    Returns:
+        Yprd, Amat, Amatc: prediction, estimation of the matrix and estimation of the dimension-reduced matrix
     """
     assert X0.ndim == Y0.ndim == 2
     assert X0.shape[1] == Y0.shape[1]
@@ -211,7 +234,7 @@ def ssproj(X0, cdim=1, vthresh=None, corrflag=False, sidx=0, Ntrn=None):
     assert sidx >= 0
 
     if Ntrn is None:
-        tidx0, tidx1 = None, None
+        tidx0, tidx1 = sidx, None
     else:
         tidx0, tidx1 = sidx, sidx+Ntrn
     # print(tidx0, tidx1)

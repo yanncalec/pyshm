@@ -91,8 +91,7 @@ def normalize(X0, W=None):
 
 
 def pca(X, W=None, nc=None, corrflag=False):
-    """
-    Principal Component Analysis.
+    """Principal Component Analysis.
 
     Args:
         X (2d array): each row represents a variable and each column represents an observation
@@ -100,7 +99,6 @@ def pca(X, W=None, nc=None, corrflag=False):
         sflag (bool): if True apply sign correction to the principal vectors
     Returns:
         C, U : coefficients and corresponded principal directions
-
     """
     if corrflag:
         U, S, _ = la.svd(corr(X, X, W=W))
@@ -122,8 +120,7 @@ def pca(X, W=None, nc=None, corrflag=False):
 
 
 def cca(X0, Y0, W=None):
-    """
-    Canonical Correlation Analysis
+    """Canonical Correlation Analysis.
     """
     # X = X0 - mean(X0)[:,np.newaxis]
     # Y = Y0 - mean(Y0)[:,np.newaxis]
@@ -217,7 +214,6 @@ def linear_regression(Y, X):
     Args:
         Y (1d array): the observation variable
         X (1d array): the explanatory variable
-        nanmode (str): what to do with nan values. "interpl": interpolation, "remove": remove, "zero": replace by 0
     Returns:
         a, b: the least square solution (using scipy.sparse.linalg.cgs)
         err: residual error
@@ -261,9 +257,10 @@ def Hurst(data, mwsize, sclrng=None, wvlname="haar"):
         sclrng (tuple): index of scale range used for linear regression
         wvlname (str): wavelet name
     Returns:
-        H (1d array): estimate of Hurst exponent
-        B (1d array): estimate of intercept
-        V (2d array): estimate of variance of H and B
+        ..
+        - H (1d array): estimate of Hurst exponent
+        - B (1d array): estimate of intercept
+        - V (2d array): estimate of variance of H and B
     """
     def scalar_linear_regression(yvar0, xvar0):
         mx, my = np.mean(xvar0), np.mean(yvar0)
@@ -328,7 +325,8 @@ def Hurst(data, mwsize, sclrng=None, wvlname="haar"):
 def Hurst_rs(X0, nrng=None, alc=False):
     """Estimate the Hurst exponent of a time series using the definition.
 
-    This method seems highly sensitive to the parameters and computationally slow.
+    Note:
+        This method seems highly sensitive to the parameters and computationally inefficient compared to the wavelet based method.
     """
     def power_regression(yvar0, n=1):
         yvar = np.log(yvar0)
@@ -395,8 +393,9 @@ def training_period(Nt, tidx0=None, Ntrn=None):
         tidx0 (int): starting index of the training period.
         Ntrn (int): length of the training period.
     Returns:
-        (tidx0, tidx1): tuple of valid starting and ending index.
-        Ntrn: length of valid training period.
+        ..
+        - (tidx0, tidx1): tuple of valid starting and ending index.
+        - Ntrn: length of valid training period.
     """
     tidx0 = 0 if tidx0 is None else (tidx0 % Nt)
     tidx1 = Nt if Ntrn is None else min(tidx0+Ntrn, Nt)
@@ -476,6 +475,7 @@ def dim_reduction_cca(func):
             L, Cvec, Err, Sig = func(Y0, X0, W0, *args, **kwargs)
             Lc, V, S, cdim = None, None, None, None
         return (L, Cvec, Err, Sig), (Lc, V, S) # , (Lc, Cvecc, Errc, Sigc)
+        # the first tuple in the returned values is the same as in multi_linear_regression and it is computed from the dimension-reduced solution, the second is (the reduced matrix, the pca basis, the singular values)
     return newfunc
 
 
@@ -520,6 +520,7 @@ def dim_reduction_pca(func):
             Lc, Cvecc, Errc, Sigc = L, Cvec, Err, Sig
             U, V, S, cdim = None, None, None, None
         return (L, Cvec, Err, Sig), (Lc, V, S)
+        # the first tuple in the returned values is the same as in multi_linear_regression and it is computed from the dimension-reduced solution, the second is (the reduced matrix, the pca basis, the singular values)
     return newfunc
 
 
@@ -589,6 +590,7 @@ def dim_reduction_bm(func):
                 Ccov[t,] = Yscl @ Ccov[t,] @ Yscl.T
 
         return ((Amat, Acov), (Cvec, Ccov), Err, Sig), ((Amatc, Acovc), U, S)
+        # The returned variables are similar to those in dim_reduction_pca
     return newfunc
 
 
@@ -712,16 +714,19 @@ def multi_linear_regression(Y, X, W, vreg=0):
     """Multivariate linear regression by generalized least square (GLS).
 
     GLS looks for the matrices L and the vector C such that the reweighted norm
-        ||L*X + C - Y||_W  (* denotes the matrix product)
-    is minimized. Analytical formula of the solutions:
-        L = cov_W(Y, X) * cov_W(X,X)^-1
-        C = mean_W(Y) - L * mean_W(X)
+
+        ||L*X + C - Y||_W
+
+     is minimized. Analytical formula of the solutions are given by
+
+        L = cov_W(Y, X) * cov_W(X,X)^-1,  C = mean_W(Y) - L * mean_W(X)
     where cov_W and mean_w are the W-modified covariance matrix / mean vector.
 
     Args:
         Y (2d array): response variables
         X (2d array): explanatory variables
         W (2d matrix): symmetric and positive definite
+        vreg (float): regularization parameter
     Returns:
         L, C, E, S: the matrix and the constant vector, the residual and its covariance matrix
     """
@@ -749,6 +754,21 @@ def multi_linear_regression(Y, X, W, vreg=0):
 
 def multi_linear_regression_bm(Y, X, sigmaq2, sigmar2, x0=0., p0=1., smooth=False):
     """Multivariate linear regression by Brownian motion model.
+
+    Args:
+        Y (2d array): response variables
+        X (2d array): explanatory variables
+        sigmaq2 (float): variance of innovation noise
+        sigmar2 (float): variance of observation noise
+        x0 (float): initial state (a constant vector)
+        p0 (float): variance of the initial state
+        smooth (bool): if True apply Kalman smoother
+    Returns:
+        ..
+        - (A, covA): estimation of the operator and its covariance matrix, time-dependent
+        - (C, covC): estimation of the bias and its covariance matrix, time-dependent
+        - Err: residual Y - A*X, time-dependent
+        - Sig: covariance matrix of Err, time-independent
     """
     assert Y.shape[1] == X.shape[1]
 

@@ -21,7 +21,7 @@ from . import Stat
 #### Functional operators ####
 
 def nan_safe(func):
-    """Make a function safe to nan by replacing nan values."""
+    """Decorator that make a function safe to nan by replacing nan values."""
     @wraps(func)
     def newfunc(X0, *args, nv=0, **kwargs):
         X = X0.copy()
@@ -29,7 +29,6 @@ def nan_safe(func):
         X[nidx] = nv
         return func(X, *args, **kwargs)
     return newfunc
-
 
 # def along_axis(func):
 #     """Decorator functional for applying a function on a nd array along a given axis.
@@ -39,7 +38,7 @@ def nan_safe(func):
 #     return newfunc
 
 def along_axis(func):
-    """Decorator functional for applying a function on a nd array along a given axis.
+    """Decorator for applying a function on a nd-array along a given axis.
     """
     @wraps(func)
     def newfunc(X, *args, axis=-1, **kwargs):
@@ -58,6 +57,8 @@ def along_axis(func):
 
 
 def cumop(func):
+    """Decorator of cumulative operation.
+    """
     @wraps(func)
     def newfunc(X, *args, **kwargs):
         Y = np.zeros(len(X))
@@ -68,7 +69,8 @@ def cumop(func):
 
 
 def recursive(niter):
-    """Recursion decorator"""
+    """Decorator for recursion.
+    """
     def _inner(func):
         def _recursive(niter, x, *args, **kwargs):
             if niter>0:
@@ -102,12 +104,14 @@ def get_actual_kwargs(func, **kwargs):
 def safe_convolve(X, kernel, mode="valid"):
     """FFT based nan-safe convolution.
 
-    Unlike `convolve`, `fftconvolve` is not safe to nan values. This function is a wrapper of `fftconvolve` by applying a mask on the nan values.
+    Unlike ``convolve``, the numpy function ``fftconvolve`` is not safe to nan values. This function is a wrapper of ``fftconvolve`` by applying a mask on the nan values.
 
     Args:
         X (1d array): input array.
         kernel (1d array): convolution kernel.
-        mode (str): truncation mode of the convolution, can be ["valid", "full", "samel", "samer"].
+        mode (str): truncation mode of the convolution, can be ["valid", "full", "samel", "samer"], where "samel" means the leftmost end is not valid, and "samer" means the rightmost end is not valid.
+    Returns:
+        Result of convolution.
     """
     assert(len(X)>=len(kernel))
 
@@ -134,9 +138,7 @@ def safe_convolve(X, kernel, mode="valid"):
 def circular_convolution(x, y):
     """Circular convolution.
 
-    The circular convolution between x and y is the convolution between
-    periodized x and y. This function computes the circular convolution via
-    fft.
+    The circular convolution between the 1d arrays `x` and `y` is the convolution between periodized version of `x` and `y`. This function computes the circular convolution via fft.
     """
     assert(x.ndim == y.ndim == 1)  # only operate on 1d arrays
 
@@ -151,7 +153,7 @@ def circular_convolution(x, y):
 
 @along_axis
 def convolve_fwd(X, psi, mode="valid"):
-    """Forward operator of convolution.
+    """Forward operator of the convolution considered as a linear operator.
 
     Args:
         X (nd array): input array.
@@ -164,7 +166,7 @@ def convolve_fwd(X, psi, mode="valid"):
 
 @along_axis
 def convolve_bwd(X, psi, mode="full"):
-    """Backward operator of convolution.
+    """Backward operator of the convolution considered as a linear operator.
     """
     # the following is equivalent to
     # convolve(X[::-1], psi, mode=mode)[::-1]
@@ -172,7 +174,14 @@ def convolve_bwd(X, psi, mode="full"):
 
 
 def convolve_matrix(h,Nx,mode="valid"):
-    """Get the matrix representation of the convolution operator.
+    """Matrix representation of the convolution operator.
+
+    Args:
+        h (1d array): convolution kernel
+        Nx (int): length of the input signal
+        mode (str): mode of truncation, ["valid", "samel", "samer", "all"]
+    Returns:
+        A matrix.
     """
     Nh = len(h)
 #     A = np.zeros((Nx+Nh-1, Nx))
@@ -192,12 +201,15 @@ def convolve_matrix(h,Nx,mode="valid"):
 
 
 def diff_kernel(deg, step=1):
-    """Get the convolution kernel of a differential operator.
+    """Convolution kernel of a differential operator.
 
-    The kernel is determined by its degree and step, for example, for degree 0 and step 1 the kernel is [1,-1], and for step 2 the kernel is [1, 0, -1]. For higher degree the kernel is obtained using auto-convolution of the kernel of degree 0.
+    The kernel is determined by its degree and step, for example, for degree 0 and step 1 the kernel is :math:`[1,-1]`, and for step 2 the kernel is :math:`[1, 0, -1]`. For higher degree the kernel is obtained using auto-convolution of the kernel of degree 0.
 
     Args:
-        deg, step (int): degree and step of the differential kernel.
+        deg (int): degree of the differential kernel.
+        step (int): step of the differential kernel.
+    Returns:
+        The kernel convolution.
     """
     assert(deg>=0)
     h0 = np.zeros(1+step)
@@ -210,16 +222,13 @@ def diff_kernel(deg, step=1):
 
 
 def mts_cumview(X, N):
-    """Cumulative view of a multivariate time series (mts).
-
-    This function cumulates N past values of a mts:
-        X[t] -> (X[t], X[t-1]...X[t-N+1])
+    """Cumulative view of a multivariate time series (*mts*).
 
     Args:
         X (2d array): each row is a variable, each column is an observation of all variables.
-        N (int): number of cumulations, N>=1.
+        N (int): size of the cumulation, N>=1.
     Returns:
-        a 2d array of row dimension N times the row dimension of the input array.
+        A 2d array that the :math:`t`-th column is the concatenation of the N past values :math:`(X[t], X[t-1]...X[t-N+1])`.
     """
     assert(N>=1)
     assert(X.ndim==2)
@@ -238,15 +247,13 @@ def mts_cumview(X, N):
 def KZ_filter(X0, mwsize, kzord, method="mean", causal=True):
     """Kolmogorov Zurbenko filter for pandas data sheet.
 
-    The KZ filter is nothing but the recursive application of the moving
-    average, it has length (mwsize-1)*k+1. Here we extend KZ filter using the
-    moving median.
+    The KZ filter is nothing but the recursive application of the moving average, it has length (mwsize-1)*k+1. Here we extend KZ filter using the moving median.
 
     Args:
         X0: input pandas DataFrame
         mwsize (int): size of moving window
         kzord (int): order of KZ filter
-        method (string): "mean" or "median"
+        method (str): "mean" or "median"
         causal (bool): if True use the causal filter
 
     Returns:
@@ -272,8 +279,11 @@ LU_mean = lambda X,wsize: (L_filter(X,wsize) + U_filter(X,wsize))/2
 
 
 def U_filter(X, wsize=1):
-    """
-    Non boundary-preserving upper filter.
+    """Non-linear upper filter.
+
+    Args:
+        X (1d array): input
+        wsize (int): size of the moving window
     """
     assert(X.ndim==1)
 
@@ -294,8 +304,7 @@ def U_filter(X, wsize=1):
 
 
 def U_filter_boundary(X, wsize=1):
-    """
-    Boundary-preserving upper filter.
+    """Boundary-preserving upper filter.
     """
     assert(X.ndim==1)
 
@@ -317,8 +326,7 @@ def U_filter_boundary(X, wsize=1):
 
 
 def L_filter(X, wsize=1):
-    """
-    Non boundary-preserving lower filter.
+    """Non-linear lower filter.
     """
     assert(X.ndim==1)
 
@@ -339,8 +347,7 @@ def L_filter(X, wsize=1):
 
 
 def L_filter_boundary(X, wsize=1):
-    """
-    Boundary-preserving lower filter.
+    """Boundary-preserving lower filter.
     """
     assert(X.ndim==1)
 
@@ -368,7 +375,7 @@ def time_findgap(T0, dtuple=(0, 60*60, 0)):
 
     Args:
         T0: pandas DatetimeIndex
-        dtuple: a tuple of (day, second, microsecond) that define the minimal size of the gap
+        dtuple: a tuple of (day, second, microsecond) that define the size of the gap
     Returns:
         G: index of gaps
     """
@@ -401,16 +408,11 @@ def roll_fill(X0, shift, val=np.nan, axis=-1):
 
 
 def sdiff(X, p, axis=-1):
-    """Seasonal difference.
-
-    At each time index t, the seasonal difference of lag p is defined as
-        X[t] - X[t-p]
+    """Seasonal difference :math:`X[t] - X[t-p]`.
 
     Args:
         X (nd array): the last dimension is the time axis
         p (int): seasonality
-    Return:
-        an array of same dimension as X
     """
     if p==0:
         return X #np.np.zeros_like(xt)
@@ -425,82 +427,10 @@ def sdiff(X, p, axis=-1):
         return dX
 
 
-# def isdiff(dX, p, av=None, axis=-1):
-#     """Inverse seasonal difference (or seasonal integration).
-
-#     At each time index t, the seasonal difference of lag p is defined as
-#         X[t] + X[t-p]
-
-#     Args:
-#         dX (nd array): first dimension is the time axis
-#         p (int): seasonality
-#     """
-#     if av is None:
-#         av = np.zeros(p)
-#     else:
-#         assert(len(av)>=p)
-#     if p==0:
-#         return dX #np.np.zeros_like(xt)
-#     else:
-#         Nidx = np.isnan(dX)
-#         dX[np.isnan(dX)] = 0
-#         X = np.zeros_like(dX)
-
-#         for i in range(p):
-#             dX[i] += av[i]
-#             X[i::p] = np.cumsum(dX[i::p], axis=axis)
-#         X[Nidx] = np.NaN
-
-#         return X
-
-
-# def dsdt(X, sord=3, ssize=24, tord=1, tsize=1, **kwarg):
-#     """De-seasonal and de-trend operator.
-
-#     This function removes the seasonal and trend components by applying sdiff with different steps.
-#     """
-#     return rfunc(tord, sdiff, rfunc(sord, sdiff, np.asarray(X), ssize, **kwarg), tsize, **kwarg)
-
-
-# def idsdt(X, sord=3, ssize=24, tord=1, tsize=1, av=None):
-#     """Inverse de-seasonal and de-trend operator.
-#     """
-#     isdiff = lambda X, p: isdiff(X, p, av=av)
-#     return rfunc(sord, isdiff, rfunc(tord, isdiff, np.asarray(X), tsize), ssize)
-
-
-# def nmldiff_transform(X, v=None, center=False):
-#     """ Transform data by normalized difference.
-
-#         The normalized difference of a time series X(t) is the ratio between its derivative and its value:
-#             X'(t)/X(t)
-#         To prevent division-by-zero error, X(t) is adjusted by a constant v.
-
-#         Args:
-#             X (pandas Series or DataFrame): input time series
-#             v (float): a fail-proof value
-#             center (bool): if True use centered two points difference
-#     """
-#     if not (isinstance(X, pd.DataFrame) or isinstance(X, pd.Series)):
-#         raise TypeError("Input must be a pandas DataFrame or Series")
-
-#     if v is None:
-#         # transformed data have a fixed magnitude range.
-#         v = X.std()*100
-#     X = X - X.min() + v  # X must be strictly positive
-
-#     if center:
-#         dX = (X.shift(-1) - X.shift(1))/2
-#     else:
-#         dX = X.diff()
-
-#     return dX/X
-
-
 #### Interpolation and projection ####
 
 def interpl_nans(X0):
-    """Interpolation of nan values in a 1d array.
+    """Interpolation of nan values in a 1d array using :func:`numpy.interp`.
     """
     assert(X0.ndim==1)
     X = X0.copy()
@@ -511,7 +441,7 @@ def interpl_nans(X0):
 
 
 def gp_interpl(x_obs, y_obs, x_pred, nugget=1e-9):
-    """Interpolation of missing data using GP
+    """Interpolation of missing data using :class:`sklearn.gaussian_process.GaussianProcess`
 
     Args:
         x_obs : coordinates of observations
@@ -535,12 +465,11 @@ def gp_interpl(x_obs, y_obs, x_pred, nugget=1e-9):
 
 @along_axis
 def polyprojection(X, deg=1):
-    """Projection onto the linear space generated by polynomial of a given degree.
+    """Projection onto the linear space generated by polynomials of a given degree using :func:`numpy.polyfit`.
 
     Args:
         X (nd array): input array.
-        deg (int): degree of polynomials
-        axis (int): axis along which to apply the 1d convolution.
+        deg (int): degree of polynomials.
     """
     assert(deg>=0)
     assert(X.ndim==1)
@@ -599,28 +528,21 @@ def shrinkage_percentile(X0, thresh, soft=True):
 
 #### Outliers and detection ####
 
-def remove_plateau_jumps(y0, wsize=10, thresh=5., bflag=False, dratio=0.5):
+def remove_plateau_jumps(y0, wsize=10, bflag=False, thresh=5., dratio=0.5):
     """Remove plateau-like or sawtooth-like jumps.
 
-    Plateau-like and sawtooth-like jumps:
-          |---|          /\  /\
-        --|   |--  or --/  \/  \--
+    This function applies first a non-linear LU filter to transform sawtooth-like jumps to plateau jumps, then detect significant plateau jumps by computing the threshold from given arguments. For each jump exceeding the threshold value, an appropriate action is determined by a histogram based analysis.
 
     Args:
         y0 (1d array): input signal
-        wsize (int): plateau size
+        wsize (int): size of the moving window of the LU-filter
+        bflag (bool): if True apply boundary preserving LU-filter
         thresh (float): threshold for detection of jumps
-        bflag (bool): if True apply boundary preserving filter
         dratio (float): ratio between the duration of a plateau jump and the size of y0
-    Return:
-        Processed data.
-
-    Note: This function may have no effect on the data which contain no regular part
-    (eg, the whole signal is sawtooth-like).
     """
     assert y0.ndim == 1
 
-    # 1. Apply L and U filter to detect plateau jumps
+    # 1. Apply L and U filter to transform sawtooth-like jumps to plateau jumps
     if bflag: # boundary preserving filter
         yu = U_filter_boundary(y0, wsize) # upper filter on the residual
         yl = L_filter_boundary(y0, wsize) # lower filter
@@ -684,7 +606,6 @@ def detect_step_jumps(X0, method="diff", **kwargs):
     Args:
         X0 (1d array): input array
         method (string): method of detection, by default use "diff"
-    keyword parameters :
         thresh: factor of threshold, default value 10
         mwsize: window size for the moving average, default value 24
         median: location of the median position, default value 0.5
@@ -718,7 +639,7 @@ def find_block_true(X):
     """Find the starting and ending positions of True blocks in a boolean array.
 
     Example:
-        for X = [0, 1, 1, 1, 0, 1], the returned list is [[1,4], [5,6]]
+        for X=[0, 1, 1, 1, 0, 1], the return is [[1,4], [5,6]]
     """
     n = 0
     sidx = []
@@ -742,6 +663,9 @@ def find_altsign(X, minlen=10):
         minlen (int): minimal length of the pattern
     Return:
         a list of starting and ending positions of patterns
+
+    Example:
+        for X=[0,1,-1,1,-1,0,0], the return is [1,5]
     """
 
     dS = np.hstack([0, np.diff(np.sign(X))])
@@ -782,7 +706,8 @@ def remove_nan_columns(*args):
 #### Linear algebra related ####
 
 def cprod(a,b):
-    """Compute the product a*(a+1)...*b with correct handling of singular cases"""
+    """Compute the product a*(a+1)...*b with correct handling of singular cases.
+    """
     assert b >= 0 and a >= 0
     v = 1
     for t in range(a, b+1):
@@ -791,7 +716,8 @@ def cprod(a,b):
 
 
 def dpvander(v, pord, dord):
-    """Modified Vandermond matrix of the derivative of a polynomial"""
+    """Modified Vandermond matrix of the derivative of a polynomial.
+    """
     Vmat = np.rot90(np.vander(v, pord-dord+1))[::-1,:]  # decreasing order
     fcof = np.asarray([cprod(s, s+dord-1) for s in range(1, pord-dord+2)])[::-1] # factorial coefficents due to derivative
     return np.diag(fcof) @ Vmat
@@ -816,6 +742,8 @@ def ispositivedefinite(A):
 
 
 def mat_transpose_op(dimr, dimc):
+    """Matrix-transpose operator.
+    """
     ovec = np.zeros(dimc); ovec[0]=1
     Cmat = np.kron(np.eye(dimr), ovec)
     Lmat = np.zeros((dimr*dimc, dimr*dimc))
