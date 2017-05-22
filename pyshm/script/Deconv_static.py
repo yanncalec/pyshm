@@ -168,6 +168,7 @@ examples = []
 examples.append(["%(prog)s -h", "Print this help messages (about common parameters)"])
 examples.append(["%(prog)s ls -h", "Print help messages about the static model"])
 examples.append(["%(prog)s bm -h", "Print help messages about the dynamic model"])
+__example__ = "Some examples of use (change the path seperator '/' to '\\' on Windows platform):" + "".join([examplestyle(x) for x in examples])
 
 ls_examples = []
 ls_examples.append(["%(prog)s DBDIR/153 OUTDIR/153 --alocs 754 --component trend --time0 2016-03-01 --time1 2016-08-01 -vv", "On the location 754 of the project of PID 153 (preprocessed data), apply the least-square model on the trend component for the period from 2016-03-01 to 2016-08-01 and save the results in the directory named OUTDIR/153. Print supplementary messages."])
@@ -175,16 +176,11 @@ ls_examples.append(["%(prog)s DBDIR/153 OUTDIR/153 --alocs 754,755 -v", "Process
 ls_examples.append(["%(prog)s DBDIR/153 OUTDIR/153 -v", "Process all sensors, for each of them use the temperature of all to explain the elongation data."])
 ls_examples.append(["%(prog)s DBDIR/153 OUTDIR/153 --time0 2016-03-01 --Ntrn 1000 -v", "Change the length of the training period to 1000 hours starting from the begining of the truncated data set which is 2016-03-01."])
 ls_examples.append(["%(prog)s DBDIR/153 OUTDIR/153 --component=seasonal -v", "Process the seasonal component of data."])
+__ls_example__ = "Some examples of use (change the path seperator '/' to '\\' on Windows platform):" + "".join([examplestyle(x) for x in ls_examples])
 
 bm_examples = []
 bm_examples.append(["%(prog)s DBDIR/153 OUTDIR/153 -v", "Use the BM model to process all sensors."])
-
-analysis_examples = []
-
-__example__ = "Some examples of use (change the path seperator '/' to '\\' on Windows platform):" + "".join([examplestyle(x) for x in examples])
-__ls_example__ = "Some examples of use (change the path seperator '/' to '\\' on Windows platform):" + "".join([examplestyle(x) for x in ls_examples])
 __bm_example__ = "Some examples of use (change the path seperator '/' to '\\' on Windows platform):" + "".join([examplestyle(x) for x in bm_examples])
-__analysis_example__ = "Some examples of use (change the path seperator '/' to '\\' on Windows platform):" + "".join([examplestyle(x) for x in analysis_examples])
 
 def main():
     usage_msg = "%(prog)s <subcommand> <infile> <outdir> [options]"
@@ -278,7 +274,13 @@ def main():
             raise FileNotFoundError(options.infile)
 
         if not os.path.isdir(options.outdir):
-            raise FileNotFoundError(options.outdir)
+            # raise FileNotFoundError(options.outdir)
+            try:
+                os.makedirs(options.outdir)
+                if options.verbose > 0:
+                    print("Creat output folder {}".format(options.outdir))
+            except Exception:
+                pass
         # if options.outdir is None:
         #     idx2 = options.infile.rfind(os.path.sep, 0)
         #     idx1 = options.infile.rfind(os.path.sep, 0, idx2)

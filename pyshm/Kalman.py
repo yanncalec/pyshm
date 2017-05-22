@@ -1,9 +1,4 @@
-"""
-.. module:: Kalman
-   :platform: Unix, Windows
-   :synopsis: NA
-
-.. moduleauthor:: Han Wang <han@sivienn.com>
+"""Kalman filter.
 """
 
 import numpy as np
@@ -163,14 +158,15 @@ def Kalman_filter(Y, A, B, G, Q, R, X0, P0):
         P0 (array): guess for the covariance matrix of the initial state
 
     Returns:
-        LXtt: X_{t|t} for t=1...{Nt}, Nt is the length of Y
-        LPtt: P_{t|t}
-        LXtm: X_{t|t-1}
-        LPtm: P_{t|t-1}
-        LEt: E{t}
-        LSt: S{t}
-        LKt: K{t}
-        LLLHt: Log-Likelihood_{t}
+        ..
+        - LXtt: X_{t|t} for t=1...{Nt}, Nt is the length of Y
+        - LPtt: P_{t|t}
+        - LXtm: X_{t|t-1}
+        - LPtm: P_{t|t-1}
+        - LEt: E{t}
+        - LSt: S{t}
+        - LKt: K{t}
+        - LLLHt: Log-Likelihood_{t}
     """
 
     # dimX = B[0].shape[1] if B.ndim == 3 else B.shape[1]  # dimension of X
@@ -251,7 +247,7 @@ def Kalman_smoother(Y, A, B, G, Q, R, X0, P0):
         X_{t|n} = Exp[X_t | Y_{1:n}],  for 1 <= t <= n
 
     Args:
-        same as filter.
+        same as Kalman filter.
     Returns:
         LXtn, LPtn, LJt, res: List of X_{t|n}, P_{t|n}, J_t and the results of the Kalman filter.
     """
@@ -294,93 +290,3 @@ def Kalman_smoother(Y, A, B, G, Q, R, X0, P0):
 
     return LXtn[::-1], LPtn[::-1], LJt[::-1], res
 
-
-#### obsolete ####
-
-def FP_Parms_Estimation(func, sigmaq2=None, sigmar2=None, niter=100, verbose=False):
-    """Fixed point parameter estimations.
-
-    Args:
-        func (function handle): func takes as input sigmaq2, sigmar2, X0, P0 and returns the same group of values. X0 and P0 are respectively the initial state vector and the covariance matrix
-        sigmaq2, sigmar2 (arrays or float): initial values
-        niter (int): number of FP iterations
-        verbose (bool): print messages
-    Returns:
-        sigmaq2, sigmar2, X0, P0
-    """
-
-    X0, P0 = None, None
-    if sigmaq2 is None:
-        sigmaq2 = 0
-    else:
-        sigmaq2 = np.zeros_like(sigmaq2)
-
-    for k in range(niter):
-        sigmaq2, sigmar2, X0, P0 = func(np.zeros_like(sigmaq2), sigmar2, X0, P0)
-        # sigmaq2, sigmar2, X0, P0 = func(sigmaq2/10**6, sigmar2, X0, P0)
-
-        if verbose:
-            print('Iteration {}\nnorm(sigmaq2)={}\tsigmar2={}\tnorm(X0)={}'.format(k, norm(sigmaq2), sigmar2, norm(X0)))
-
-    return sigmaq2, sigmar2, X0, P0
-
-
-def Kalman_Deconv(Ydata, lagx, Xdata, sigmaq2, sigmar2, X0=None, P0=None, constflag=True):
-    """State-space solution for the convolution model:
-        Y[t] = \sum_{i=1}^Nh h[t,i] Y[t-i] + \sum_{j=0}^{Ng-1} g[t,j] X[t-j] + c[t]
-    with h, g and c following the Brownian motion:
-        h[t,i] = h[t-1,i] + u[t],  for i=1..Nh
-        g[t,j] = g[t-1,j] + u[t],  for j=0..Ng-1
-        c[t] = c[t-1] + u[t]
-    """
-    assert(Nh>=0 and Ng>=0 and Nh+Ng>0)
-    assert(len(Xdata) == len(Ydata))  # assume X and Y have the same length
-
-    # dimension of the state vector
-    Nq = Nh+Ng+1 if cflag else Nh+Ng
-
-    A = eye(Nq)  # System state matrix
-
-    # observation matrix
-    By = Tools.construct_convolution_matrix(Ydata, Nh, tflag=False)  # tflag=False means Y[t] is removed from the convolution sum
-    Bx = Tools.construct_convolution_matrix(Xdata, Ng, tflag=True)  # tflag=True means X[t] is used in the convolution sum
-    B0 = np.hstack([By, Bx, ones((Bx.shape[0],1))]) if cflag else np.hstack([By, Bx])
-    B = B0[:, newaxis, :] # dimension extension
-
-    # Covariance matrix of the innovation noise, time-independent
-    Q = eye(Nq) * sigmaq2 if isinstance(sigmaq2, numbers.Number) else np.diag(sigmaq2)
-    assert(Q.shape[0] == Nq)
-    # Covariance matrix of the observation noise
-    R = np.atleast_2d(sigmar2) if isinstance(sigmar2, numbers.Number) else sigmar2[:, newaxis, newaxis]
-
-    # Initial state
-    if X0 is None:
-        X0 = zeros(Nq)
-    if P0 is None:
-        P0 = eye(Nq)
-
-    Y = np.atleast_2d(Ydata).T  # put Y into column vector form
-    LXtn, LPtn, LJt, res = Kalman_Smoother(Y, A, B, Q, R, X0, P0)
-
-    # Post-processing of results
-
-    # Smoothing
-    Xtn = np.asarray(LXtn)
-    Ptn = np.asarray(LPtn)
-    Ytn = np.sum(B0 * Xtn, axis=1)
-    Etn = Ydata - Ytn # error of smoothing
-
-    # Filtration
-    Xtt = np.asarray(res[0])
-    Ptt = np.asarray(res[1])
-    Ytt = np.sum(B0 * Xtt, axis=1)
-    Ett = Ydata - Ytt # error of filtration
-
-    # Prediction
-    Xtm = np.asarray(res[2])
-    Ptm = np.asarray(res[3])
-    Ytm = np.sum(B0 * Xtm, axis=1)
-    Etm = Ydata - Ytm # error of prediction
-    # Etm = squeeze(np.asarray(Res[2][4]))  # equivalent
-
-    return (Xtn, Ptn, Ytn, Etn), (Xtt, Ptt, Ytt, Ett), (Xtm, Ptm, Ytm, Etm)

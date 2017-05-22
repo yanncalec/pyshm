@@ -1,4 +1,4 @@
-"""Collection of functions related to I/O and preprocessing of OSMOS data
+"""Collection of functions related to I/O and preprocessing of OSMOS data.
 """
 
 import json

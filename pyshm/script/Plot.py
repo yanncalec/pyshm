@@ -14,7 +14,7 @@ from pyshm.script import MyEncoder, to_json
 import warnings
 
 import matplotlib
-# matplotlib.use("qt5agg")
+matplotlib.use("qt5agg")
 import matplotlib.pyplot as plt
 # import matplotlib.colors as colors
 import mpld3

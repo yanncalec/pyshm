@@ -46,7 +46,11 @@ with open(os.path.join(current_path, 'README.rst'), encoding='utf-8') as f:
 
 # 2. or explicitly construct the list of extensions like
 pyshm_ext = []
-for fname in ['Tools.py', 'Models.py', 'Stat.py', 'OSMOS.py']:
+
+fnames = ['Kalman', 'Models', 'OSMOS', 'Stat', 'Tools'] # file names are manually given
+fname_list = [f+'.py' for f in fnames]
+
+for fname in fname_list:
     pyshm_ext.append(Extension(name="pyshm."+fname[:-3],  # the full name of the package must be given in order that the compiled library is correctly placed in the folder
                                 sources=[os.path.join("pyshm", fname)],
                                 include_dirs=[numpy.get_include()],
@@ -148,15 +152,19 @@ setup(
     # requirements files see:
     # https://packaging.python.org/en/latest/requirements.html
     install_requires=[
-    'numpy>=1.11.0',
-    'scipy>=0.18.0',
-    'pandas>=0.19.0',
-    'matplotlib>=1.5.1',
+    'numpy>=1.12.1',
+    'scipy>=0.19.0',
+    'pandas>=0.20.1',
+    'matplotlib>=2.0.2',
     'mpld3>=0.2',
-    # 'statsmodels>=0.6.1'
-    # 'cython>=0.25',
-    # 'bokeh>=0.12'
-    # 'setuptools>=26.1.1'  # not necessary
+    'colorama>=0.3.9',
+    'requests>=2.14.2'
+    # # 'statsmodels>=0.8.0'
+    'cython>=0.25.2',
+    # # 'bokeh>=0.12'
+    'joblib>=0.11',
+    'pywavelets>=0.5.2',
+    'setuptools>=27.2.0'  # not necessary
     ],
 
     # List additional groups of dependencies here (e.g. development
