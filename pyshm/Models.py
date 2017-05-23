@@ -9,7 +9,7 @@ import numbers
 import warnings
 
 from . import Tools, Stat, Kalman
-# from .Kalman import Kalman
+# from pyshm import Tools, Stat, Kalman
 
 
 ########## Utility functions ##########
@@ -60,7 +60,7 @@ def deconv(Y0, X0, lag, dord=1, pord=1, snr2=None, clen2=None, dspl=1, sidx=0, N
         Ntrn (int): length of the training period
         dspl (int): down-sampling rate
         snr2, clen2 (float): signal to noise ratio and correlation length of the polynomial Gaussian process
-        vthresh (float): threshold in dimension reduction, no reduction if set to 0.
+        vthresh (float): relative threshold in dimension reduction, between 0 and 1. The dimension corresponding to the percentage of (1-vthresh) is kept, i.e. 10 percent of information is dropped if vthresh=0.1. No reduction if set to 0.
         cdim (int): desired dimension, same effect as vthresh, no reduction if set to None.
         Nexp (int): number of experiments in the RANSAC algorithm, no RANSAC if Nexp==0
     Returns:

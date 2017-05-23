@@ -5,8 +5,9 @@ import numpy as np
 import numpy.linalg as la
 import itertools
 import numbers
+
 from . import Tools
-# from . import SPG, Tools
+# from pyshm import Tools
 
 
 class Kalman:

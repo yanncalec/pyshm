@@ -13,6 +13,7 @@ import warnings
 # from sklearn.gaussian_process import GaussianProcess
 
 from . import Tools, Kalman
+# from pyshm import Tools, Kalman
 
 # Convention:
 # for 2d array of observations of a random vector: each row represents a variable and each column represents an observation.

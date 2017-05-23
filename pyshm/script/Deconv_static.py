@@ -233,7 +233,7 @@ def main():
         tdata_opts.add_argument("--Ntrn", dest="Ntrn", type=int, default=3*30*24, help="length of the training data (default=24*30*3).", metavar="integer")
 
         dimr_opts = parser.add_argument_group("Dimension reduction options")
-        dimr_opts.add_argument("--vthresh", dest="vthresh", type=float, default=10**-2, help="relative threshold for dimension reduction (default=1e-3), no dimension reduction if set to 0.", metavar="float")
+        dimr_opts.add_argument("--vthresh", dest="vthresh", type=float, default=10**-2, help="relative threshold for dimension reduction. The dimension corresponding to the percentage of (1-vthresh) is kept, i.e. 10 percent of information is dropped if vthresh=0.1. No dimension reduction if set to 0 (default=1e-2).", metavar="float")
         dimr_opts.add_argument("--cdim", dest="cdim", type=int, default=None, help="reduced dimension, vthresh will be ignored if cdim is set to some positive integer (default=None).", metavar="integer")
         # dimr_opts.add_argument("--corrflag", dest="corrflag", action="store_true", default=False, help="use correlation matrix in dimension reduction.")
 

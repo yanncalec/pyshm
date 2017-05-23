@@ -16,7 +16,6 @@ import datetime
 import inspect
 from functools import wraps
 
-from . import Stat
 
 #### Functional operators ####
 
@@ -504,6 +503,29 @@ def shrinkage(X0, t, soft=True):
     return Y*np.sign(X), idx
 
 
+def _percentile(X0, ratio):
+    """Compute the value corresponding to a percentile in an array.
+
+    Args:
+        X0 (nd array): input array
+        ratio (float): percentile
+    """
+    assert 0. <= ratio <= 1.
+
+    X = X0.copy().flatten()
+    X[np.isnan(X)] = 0  # remove all nans
+
+    idx = np.argsort(X)  # increasing order sort
+    nz0 = int(np.floor(len(idx) * ratio))
+    nz1 = int(np.ceil(len(idx) * ratio))
+    if nz0==nz1==0:
+        return X[idx[0]]
+    if nz0==nz1==len(idx):
+        return X[idx[-1]]
+    else:
+        return np.mean(X[idx[nz0:nz1+1]])
+
+
 def shrinkage_percentile(X0, thresh, soft=True):
     """Shrinkage by a given percentage of nonzeros.
 
@@ -522,7 +544,7 @@ def shrinkage_percentile(X0, thresh, soft=True):
     elif thresh == 0.0:
         return np.zeros_like(X0)
     else:
-        v = Stat.percentile(np.abs(X0), thresh)
+        v = _percentile(np.abs(X0), thresh)
         return shrinkage(X0, v, soft=soft)
 
 

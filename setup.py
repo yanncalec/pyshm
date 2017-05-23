@@ -184,7 +184,7 @@ setup(
             'osmos_download = pyshm.script.Download_data:main',
             'osmos_preprocess = pyshm.script.Preprocess_static:main',
             'osmos_deconv = pyshm.script.Deconv_static:main',
-            'osmos_thermal = pyshm.script.Thermal_static:main',
+            # 'osmos_thermal = pyshm.script.Thermal_static:main',
             'osmos_postprocess = pyshm.script.Postprocess_static:main',
             'osmos_plot = pyshm.script.Plot:main',
         ],

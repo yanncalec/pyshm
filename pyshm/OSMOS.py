@@ -14,7 +14,7 @@ import colorama
 # from colorama import Fore, Back, Style
 
 from . import Tools
-# import Tools
+# from pyshm import Tools
 
 class LIRIS:
     """Class for describing a LIRIS object
