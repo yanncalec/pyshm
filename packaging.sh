@@ -10,8 +10,8 @@ python setup.py bdist --plat-name ${pname} --format=zip  # --relative fails on W
 # Manually modify the content of the package:
 # remove those .py and .c files that we want to protect the source
 
-cd ./dist
-unzip pyshm-0.1.0.${pname}.zip
+# cd ./dist
+# unzip pyshm-0.1.0.${pname}.zip
 # rm pyshm-0.1.0.${pname}.zip
 
 # # for f in *.c; do

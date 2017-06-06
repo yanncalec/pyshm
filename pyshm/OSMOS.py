@@ -1,9 +1,10 @@
 """Collection of functions related to I/O and preprocessing of OSMOS data.
 """
 
-import json
+import json, requests
 import dateutil, datetime
-import os, glob, pickle
+import os, glob, pickle, sys, pprint
+from pymongo import MongoClient
 
 import numpy as np
 # import numpy.linalg as la
@@ -13,6 +14,8 @@ import pandas as pd
 import colorama
 # from colorama import Fore, Back, Style
 
+import collections  # ordered dictionary
+
 from . import Tools
 # from pyshm import Tools
 
@@ -21,6 +24,102 @@ class LIRIS:
     """
     def __init__(self, **entries):
         self.__dict__.update(entries)
+
+
+def retrieve_LIRIS_info(PIDs):
+    """Retrive LIRIS info of projects from OSMOS server.
+
+    Args:
+        PIDs (list): list of PID
+    Returns:
+        pandas DataFrame
+    """
+    def _retrieve_LIRIS_info(PID):
+        # disable certificate check
+        requests.packages.urllib3.disable_warnings()
+
+        # open the session
+        session = requests.session()
+
+        # get the token
+        payload = {"token":"null","action":"loginClient","data":{"email":"be@osmos-group.com","password":"osmos"}}
+        r = session.post("https://client.osmos-group.com/server/application.php", data=json.dumps(payload))
+        response = json.loads(r.text)
+        assert(response['result'] == 'SUCCESS')  # check the response from the server
+
+        # token to use for next requests
+        token = response['data']["tokenStore"]
+
+        payload = {"token": token,
+                "action": "getlirisfromproject",
+                "data": {"projectkeyid": PID}}
+        r = session.post("https://client.osmos-group.com/server/application.php",
+                        data=json.dumps(payload))
+        toto = json.loads(r.text)
+
+        if toto['result']=='SUCCESS' and len(toto['data']['records'])>0:
+    #         print(toto)
+            P = pd.DataFrame(toto['data']['records'])
+            P['pid'] = PID
+            return P
+        else:
+            return None
+
+    L = []
+    for pid in PIDs:
+        P = _retrieve_LIRIS_info(pid)
+        if P is not None:
+            L.append(P)
+    if len(L) > 0:
+        LIRIS_info = pd.concat(L).reset_index(drop=True)
+        del LIRIS_info['location']  # remove the field location which is redundant
+    else:
+        LIRIS_info = None
+    return LIRIS_info
+
+
+def retrieve_data(hostname, port, pid, liris, redundant=False):
+    """Retrieve data of a PID from MongoDB.
+
+    Args:
+        hostname (str): name of the MongoDB server
+        port (int): port of the MongoDB server
+        pid (int): project key ID
+        liris (pandas DataFrame): a datasheet containing the pair of uid-locationkeyid
+    Returns:
+        Sdata, Parms: a dictionary of pandas DataFrame and the parameters of transformation.
+    """
+    client = MongoClient(hostname, port)
+    collection = client['OSMOS']['Liris_Measure']  # collection
+
+    Sdata = {}  # dictionary of preprocessed static data
+    Parms = {}  # dictionary of parameters
+
+    for n, u in liris.iterrows(): # iteration on all sensors of the project
+        uid = u['uid']
+        loc = int(u['locationkeyid'])
+
+        X0 = []
+        try:
+            X0 = mongo_load_static(collection, uid, dflag=True)
+        except Exception as msg:
+            print(msg)
+            continue
+
+        if len(X0)>0:
+    #         Rtsx = pd.date_range(X0.index[0].ceil(rsp), X0.index[-1].floor(rsp), freq=rsp)
+    #         Sdata[loc] = X0.resample('H').ffill().loc[Rtsx]
+            S, Rtsx, Ntsx = resampling_time_series(X0)
+            Sdata[loc] = S.loc[Rtsx]
+            Sdata[loc].loc[Ntsx] = np.nan
+            toto = pd.Series(False,index=Rtsx); toto[Ntsx] = True
+            Sdata[loc]['Missing'] = toto  # a field indicating missing values
+
+            if not redundant:  # remove redundant information
+                del Sdata[loc]['parama'], Sdata[loc]['paramb'], Sdata[loc]['paramc']
+
+            Parms[loc] = (u['parama'], u['paramb'], u['paramc'])
+    return Sdata, Parms
 
 
 def update_LIRIS_data_by_project(token, session, PID, projdir, endtime=None, verbose=0):
@@ -240,7 +339,7 @@ def static_data_preprocessing(X0,
     4. detect step jumps (optional)
 
     Args:
-        X0 (pandas DataFrame): containing the field 'Time', 'Temperature', 'Elongation'.
+        X0 (pandas DataFrame): containing the field 'Temperature', 'Elongation', with the index being the DateTimeIndex object (not the integer index).
         sflag (bool): if True remove synchronization error
         oflag (bool): if True remove obvious outliers
         jflag (bool): if True apply step jumps detection
@@ -281,7 +380,10 @@ def static_data_preprocessing(X0,
                 Temp0 = Tools.remove_plateau_jumps(Temp0, wsize=24, thresh=5., dratio=0.8, bflag=False)
 
         # 3. Resampling
-        toto = pd.DataFrame(data = {'Temperature':Temp0, 'Elongation':Elon0}, index=X0.index)
+        toto = X0.copy()
+        toto['Temperature'] = Temp0
+        toto['Elongation'] = Elon0
+        # toto = pd.DataFrame(data = {'Temperature':Temp0, 'Elongation':Elon0}, index=X0.index)
         X1, Rtsx, Ntsx = resampling_time_series(toto, rsp='H', m=nh)
 
         # 4. Jumps
@@ -399,6 +501,19 @@ def load_raw_data(fname, datatype='static'):
     return Rdata, Sdata, Ddata, Locations
 
 
+def is_transformed(fname):
+    """Determine if the data in the given file is transformed
+    """
+
+    Data = load_json(fname)
+    for k, val in Data.items():
+        if 'Reference' in val:  # transformed data do not contain the field Reference
+            break
+    else:
+        return True
+    return False
+
+
 def load_static_data(fname):
     """Load preprocessed static data from a given file.
 
@@ -421,17 +536,34 @@ def load_static_data(fname):
         - The outputs Tall, Eall may be longer than Data due to forced alignment.
     """
 
-    with open(fname, 'rb') as fp:
-        toto = pickle.load(fp)
+    if fname[fname.rfind('.')+1:].upper() == 'PKL':
+        with open(fname, 'rb') as fp:
+            toto = pickle.load(fp)
+        try:
+            Data0 = toto['Data']
+        except Exception:
+            raise TypeError('{}: No preprocessed data found in the input file.'.format(fname))
 
-    try:
-        Data0 = toto['Data']
-    except Exception:
-        raise TypeError('{}: No preprocessed data found in the input file.'.format(fname))
+        if len(toto.keys()) > 1:
+            # Unlike the raw data file, the preprocessed data file contains only one field.
+            raise TypeError('{}: Not a valid file of preprocessed data.'.format(fname))
+    elif fname[fname.rfind('.')+1:].upper() == 'JSON':
+        Data0 = load_json(fname)
 
-    if len(toto.keys()) > 1:
-        # Unlike the raw data file, the preprocessed data file contains only one field.
-        raise TypeError('{}: Not a valid file of preprocessed data.'.format(fname))
+    return _load_static_data(Data0)
+
+
+def load_json(fname):
+    with open(fname, 'r') as fp:
+        toto = json.load(fp)
+    Data0 = {}
+    for k,v in toto.items():
+        Data0[int(k)] = pd.read_json(v)
+    return Data0
+
+def _load_static_data(Data0):
+    """See :func:`load_static_data`
+    """
 
     Locations = list(Data0.keys())
     Locations.sort()
@@ -453,18 +585,60 @@ def load_static_data(fname):
         X['Missing'] = Nblx
         X['Jump'] = Jblx
 
-        Data[loc] = X[Rblx][['Temperature', 'Elongation', 'Missing', 'Jump']]
+        Data[loc] = X[Rblx].copy()# [['Temperature', 'Elongation', 'Missing', 'Jump']]
+        del Data[loc]['Type']
 
-    # Tall = concat_mts(Data, 'Temperature')  # temperature of all sensors
-    # Eall = concat_mts(Data, 'Elongation')  # elongation of all sensors
-
-    Tall0 = concat_mts(Data, 'Temperature')  # temperature of all sensors
-    Eall0 = concat_mts(Data, 'Elongation')  # elongation of all sensors
-    # remove the name 'index' in the index column
-    Tall = pd.DataFrame(data=np.asarray(Tall0), columns=Tall0.columns, index=list(Tall0.index))
-    Eall = pd.DataFrame(data=np.asarray(Eall0), columns=Eall0.columns, index=list(Eall0.index))
+    Tall = concat_mts_rm_index(Data, 'Temperature')  # temperature of all sensors
+    Eall = concat_mts_rm_index(Data, 'Elongation')  # elongation of all sensors
 
     return Data, Tall, Eall, Locations
+
+
+# def concat_mts_rm_index(Data, fd):
+#     """
+#     Args:
+#         fd (str): for example, 'Temperature'
+#     """
+#     X0 = concat_mts(Data, fd)
+#     # remove the name 'index' in the index column
+#     return pd.DataFrame(data=np.asarray(X0), columns=X0.columns, index=list(X0.index))
+
+
+def load_static_data_mdb(fname):
+    """Load preprocessed static data from a given file.
+    """
+
+    Data0 = load_json(fname)
+
+    Locations = list(Data0.keys())
+    Locations.sort()
+
+    # Extract data of temperature and elongation
+    Data = {}
+    for loc, X0 in Data0.items():
+        X = X0.copy()
+
+        # index of interpolated values
+        Rblx = np.asarray(list(map(lambda x:np.mod(x>>0, 2), X['Type'])), dtype=bool)
+        # index of missing data
+        Nblx = np.asarray(list(map(lambda x:np.mod(x>>1, 2), X['Type'])), dtype=bool)
+        # index of jumps
+        Jblx = np.asarray(list(map(lambda x:np.mod(x>>2, 2), X['Type'])), dtype=bool)
+        Jblx = np.logical_and(Jblx, np.logical_not(Nblx))  # remove the artificial jumps of missing data
+
+        X[Nblx] = np.nan
+        X['Missing'] = Nblx
+        X['Jump'] = Jblx
+
+        Data[loc] = X[Rblx].copy()# [['Temperature', 'Elongation', 'Missing', 'Jump']]
+        del Data[loc]['Type']
+
+    Tall = concat_mts_rm_index(Data, 'Temperature')
+    Eall = concat_mts_rm_index(Data, 'Elongation')
+    Rall = concat_mts_rm_index(Data, 'Reference')
+
+
+    return Data, Tall, Eall, Rall, Pall, Locations
 
 
 def concat_mts(Data, field):
@@ -638,3 +812,239 @@ def prepare_static_data(fname, timerange=(None,None), mwsize=24, kzord=1, method
     #         # raise ValueError("No significant seasonal component detected.")
 
     return (Tall, Tsnl, Ttrd), (Eall, Esnl, Etrd), Midx
+
+
+# def prepare_static_data_mdb(fname, timerange=(None,None)):
+#     """Prepare static data of MongoDB for further analysis.
+
+#     Args:
+#         fname (str): name of the pickle file containing preprocessed static data
+#         timerange (tuple of str): starting and ending timestamp of the data
+#     Returns:
+#         Tall, Eall, Rall, PLall, Midx: truncated temperature, elongation, reference, parameters and indicator of missing values
+#     """
+#     # beginning and ending timestamps
+#     tidx0, tidx1 = timerange
+
+#     # Load preprocessed static data
+#     Data0, Tall0, Eall0, Rall0, Pall0, Locations = load_static_data_mdb(fname)
+
+#     # indicator of missing data, NaN: not defined, True: missing data
+#     Midx0 = concat_mts(Data0, 'Missing')
+
+#     # Data truncation
+#     Tall = Tall0[tidx0:tidx1]
+#     Eall = Eall0[tidx0:tidx1]
+#     Rall = Rall0[tidx0:tidx1]
+#     Pall = {k:v[tidx0:tidx1] for k,v in Pall0.items()}
+#     # indicator of missing values, the nan values due forced alignment of concat_mts() are casted as True
+#     Midx = Midx0[tidx0:tidx1].astype(bool)
+
+#     return Tall, Eall, Rall, Pall, Midx
+
+
+#### MongoDB related ####
+# transform table for temperature
+tfAbaqueTemp = np.asarray([
+    [243448, -7.97753526070585E-05, -20.5788499585168],
+    [180772, -0.000110744424018251, -14.9805089813728],
+    [135623, -0.00015210513506936, -9.3710452664882],
+    [102751, -0.000206825232678387, -3.74850051706308],
+    [78576, -0.000278504985239236, 1.88380772015819],
+    [60623, -0.000371609067261241, 7.52805648457823],
+    [47168, -0.000491497100167109, 13.1829352206822],
+    [36995, -0.000644745325596389, 18.8523533204384],
+    [29240, -0.000838926174496644, 24.5302013422819],
+    [23280, -0.00108318890814558, 30.2166377816291],
+    [18664, -0.00138888888888889, 35.9222222222222],
+    [15064, -0.00176803394625177, 41.6336633663366],
+    [12236, -0.00223613595706619, 47.3613595706619],
+    [10000, -0.00280946226892173, 53.0946226892173],
+    [8220.3, -0.00350852571749351, 58.8411339555119],
+    [6795.2, -0.00435578012021953, 64.5983970729158],
+    [5647.3, -0.00537750053775005, 70.3683587868359],
+    [4717.5, -0.00660327522451136, 76.1509508716323],
+    [3960.3, -0.00806581706726891, 81.9430553315051],
+    [3340.4, -0.00980199960792002, 87.742599490296],
+    [2830.3, -0.0118567702157932, 93.5582167417595],
+    [2408.6, -0.0142775556824672, 99.3889206167904],
+    [2058.4, -0.0171115674195756, 105.222450376454],
+    [1766.2, -0.0204248366013072, 111.074346405229],
+    [1521.4, -0.0242718446601942, 116.927184466019],
+    [1315.4, -0.028735632183908, 122.798850574713],
+    [1141.4, -0.033900603430741, 128.694148755848],
+    [993.91, -0.0398215992354253, 134.579085696082],
+    [868.35, -0.0466243938828795, 140.486292428198],
+    [761.11, -0.0543951261966928, 146.400674499565],
+    [669.19, -0.0632511068943706, 152.327008222644],
+    [590.14, -0.0733137829912024, 158.265395894428],
+    [521.94, -0.0847170450694679, 164.217214503558],
+    [462.92, -0.0975800156128025, 170.171740827479],
+    [411.68, -0.112107623318386, 176.152466367713],
+    [367.08, -0.128402670775552, 182.13405238829],
+    [328.14, -0.146670577882077, 188.128483426225],
+    [294.05, -0.167056465085199, 194.122953558303],
+    # [264.12, 0, 0],  # <--- this may create discontinuties
+    ]
+)
+
+# def raw2celsuis(raw, T, round05_flag=True, nbdec=5):
+#     """Convert raw temperature to celsuis.
+
+#     Args:
+#         raw (float): raw value
+#         T (2d array): a table
+#     """
+
+#     v0 = 10000*raw/(1023-raw)
+
+# #     idx = np.sum(v0 <= T[:,0])-1
+# #     v1 = T[idx,1]*v0 + T[idx,2] if idx>=0 else 0
+#     idx = max(np.sum(v0 <= T[:,0])-1, 0)
+#     v1 = T[idx,1]*v0 + T[idx,2]
+
+#     return np.floor(v1*2)/2 if round05_flag else np.round(v1, decimals=nbdec)
+
+
+def _raw2celsuis(raw):
+    """Convert raw temperature to celsuis.
+
+    Args:
+        raw (float): raw value
+    Return:
+        temperature in celsuis
+    """
+
+    T = tfAbaqueTemp
+    try:
+        v0 = 10000. * raw / (1023. - raw)
+        idx = max(np.sum(v0 <= T[:,0])-1, 0)  # values outside the range [294.05, 243448] will be shrinked.
+        v1 = T[idx,1]*v0 + T[idx,2]
+    except ZeroDivisionError:
+        v1 = np.nan
+    return v1
+
+
+# vectorized version
+# raw2celsuis = np.frompyfunc(_raw2celsuis, 1, 1)
+raw2celsuis = np.vectorize(_raw2celsuis)
+
+
+def raw2millimeters(raw, ref, a, b, c):
+    """Convert raw elongation to millimeter
+    """
+    return (a*(value/ref)**2 + b*(value/ref) + c)/1000 -2
+
+
+def _mongo_transform(X):
+    """
+    Args:
+        X (dict): containing the fields `['data', 'uid', 'location', 'paramb', 'start', 'paramc', 'year', 'day', 'parama', 'month', '_id', 'newdoc', 'type']`. Typically this is one document in the list of documents returned by collection.find({'uid':?, 'type':?}).
+    Return:
+        a pandas DataFrame containing raw and transformed data.
+    """
+    # first put data in pandas format
+    P = pd.DataFrame(X['data'])
+    m0 = np.asarray(P['measure'])
+    t0 = np.asarray(P['temperature'])
+    r0 = np.nan * np.zeros(len(P)) if not 'reference' in P else np.asarray(P['reference'])
+
+    # transform of 'measure' and 'temperature'
+    # Singular case:  check parameters
+    a = np.nan if (not 'parama' in X) else X['parama']
+    b = np.nan if (not 'paramb' in X) else X['paramb']
+    c = np.nan if (not 'paramc' in X) else X['paramc']
+
+    if np.isnan(a) or np.isnan(b) or np.isnan(c):  # if any of these parameters is missing, use directly the field 'measure' without transform
+        elon = m0
+#                 temp = np.asarray(t0)
+    else:
+        if not 'reference' in P:  # raise error if 'reference' is missing
+            raise TypeError('uid: {}, _id: {}: missing the field reference'.format(X['uid'], X['_id']))
+
+        mb = np.abs(m0) > 0
+        rb = np.abs(r0) == 0
+
+        if np.any(np.logical_and(rb, mb)):  # if mesure/ref are not defined
+            raise ValueError('uid: {}, _id: {}, reference value close to zero.'.format(X['uid'], X['_id']))
+
+        v0 = np.zeros(len(P))
+        v0[~rb] = m0[~rb]/r0[~rb]
+        v0[rb] = m0[rb]  # on the entries that reference==0 we use 'measure' directly
+
+        # a, b, c = X['parama'], X['paramb'], X['paramc']
+        elon = (a*v0**2 + b*v0 + c)/1000 - 2
+#                 temp = raw2celsuis(t0)
+
+    temp = raw2celsuis(t0)
+
+    return pd.DataFrame({'ElongationTfm':elon, 'TemperatureTfm':temp, 'ElongationRaw':m0, 'TemperatureRaw':t0, 'Reference':r0, 'parama':a, 'paramb':b, 'paramc':c}, index=P['date']).sort_index()
+
+
+def mongo_load_static(C, uid, dflag=True):
+    """Extract raw static data from a collection of MongoDB and apply transformation
+
+    The transformation applied on temperature and on elongation are defined in the function :func:raw2celsuis and :func:raw2millimeters.
+
+    Args:
+        C: collection of MongoDB
+        uid (str): sensor ID
+        dflag (bool): if True remove duplicate entries
+    Return:
+        Pandas DataFrame with 'date' as index, and containing the fields 'Temperature' (in celsuis) and 'Elongation' (in millimeter).
+    """
+    # get raw data
+    rawdata = C.find({'uid':uid, 'type':1})
+    # normally, rawdata is a list-like structure and rawdata[0] contains the fields
+    # `['data', 'uid', 'location', 'paramb', 'start', 'paramc', 'year', 'day', 'parama', 'month', '_id', 'newdoc', 'type']`
+    # but singular cases may exist and must be handled.
+
+    L = []
+    for X in rawdata:
+        if len(X['data'])>0: # Singular case: check that data exist
+            try:
+                p0 = _mongo_transform(X)
+            except Exception as msg:
+                print(msg)
+                continue
+            # p0['newdoc'] = X['newdoc']
+            # p0['location'] = X['location']
+            L.append(p0)
+
+    if len(L)>0:
+        #         P = pd.concat(L).sort_values('date').reset_index(drop=True)
+        P = pd.concat(L).sort_index() #.reset_index(drop=True)
+        # remove duplicate time index
+        return P.groupby(['date']).agg(np.mean) if dflag else P
+    else:
+        return []
+
+
+def mongo_load_dynamic(C, uid):
+    """Extract raw dynamic data from a collection of MongoDB and apply transformation
+
+    The transformation applied on temperature and on elongation are defined in the function :func:raw2celsuis and :func:raw2millimeters.
+
+    Args:
+        C: collection of MongoDB
+        uid (str): sensor ID
+    Return:
+        List of dynamic events in Pandas DataFrame format with 'date' as index, and containing the fields 'Temperature' (in celsuis) and 'Elongation' (in millimeter).
+    """
+    # get raw data
+    rawdata = C.find({'uid':uid, 'type':2})
+    # normally, rawdata is a list-like structure and rawdata[0] contains the fields
+    # `['data', 'uid', 'location', 'paramb', 'start', 'paramc', 'year', 'day', 'parama', 'month', '_id', 'newdoc', 'type']`
+    # but singular cases may exist and must be handled.
+
+    L = {}
+    for X in rawdata:
+        if len(X['data'])>0: # Singular case: check that data exist
+            p0 = _mongo_transform(X)
+            p0['newdoc'] = X['newdoc']
+            p0['location'] = X['location']
+            L[X['start']] = p0
+
+    # L is unordered. Sort in chronological order
+    return [v for k, v in collections.OrderedDict(sorted(L.items())).items()]
+

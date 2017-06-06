@@ -26,21 +26,6 @@ plt.style.use('ggplot')
 #     subcommand='static'  # type of deconvolution model
 
 
-def detect_periods_of_instability(hexp, hthresh, hgap=0, mask=None):
-    # hexp = np.asarray(hexp0).copy(); hexp[np.isnan(hexp0)] = -np.inf
-    # if hgap > 0:
-    #     # with post-processing
-    #     hidc = Tools.L_filter(np.int32(hexp>hthresh), wsize=hgap)>0  # non linear filter, slower
-    #     # hidc = scipy.signal.convolve(hexp>ithresh, np.ones(options.hgap, dtype=bool), mode="same")>0
-    # else:
-    #     # no post-processing
-    hidc = hexp>hthresh
-    # apply the mask
-    if mask is not None:
-        hidc[np.where(mask)[0]] = False
-    blk = Tools.find_block_true(hidc)  # starting-ending indexes of blocks of instability
-    return [b for b in blk if b[1]-b[0] > hgap]
-
 # def blk2ts(blk, tidx):
 #     """
 #     """
@@ -730,13 +715,13 @@ def main():
             Sblk, Sblk_ts = {}, {}
             # indicator of instability based on local variance
             for loc, sexp in Serp.items():
-                Sblk[loc] = detect_periods_of_instability(sexp, options.sthresh, hgap=options.gap, mask=Midx[loc])
+                Sblk[loc] = Stat.detect_periods_of_instability(sexp, options.sthresh, hgap=options.gap, mask=Midx[loc])
                 # Sblk_ts[str(loc)] = blk2ts(Sblk[loc], Tidx)
                 Sblk_ts[str(loc)] = [[str(Tidx[b[0]]), str(Tidx[b[1]-1])] for b in Sblk[loc]]
             Hblk, Hblk_ts = {}, {}
             # indicator of instability based on Hurst exponent
             for loc, hexp in Hexp.items():
-                Hblk[loc] = detect_periods_of_instability(hexp, options.hthresh, hgap=options.gap, mask=Midx[loc])
+                Hblk[loc] = Stat.detect_periods_of_instability(hexp, options.hthresh, hgap=options.gap, mask=Midx[loc])
                 # Hblk_ts[str(loc)] = blk2ts(Hblk[loc], Tidx)
                 Hblk_ts[str(loc)] = [[str(Tidx[b[0]]), str(Tidx[b[1]-1])] for b in Hblk[loc]]
         else:

@@ -114,15 +114,16 @@ def safe_convolve(X, kernel, mode="valid"):
     """
     assert(len(X)>=len(kernel))
 
-    Xmask = np.isnan(X)
-    if Xmask.any():
-        Ymask = sp.signal.convolve(Xmask, np.ones(len(kernel),dtype=bool), mode="full")
-        X1 = X.copy()
-        X1[Xmask] = 0  # setting nan to 0 may result in high frequency artifacts.
-        Y = sp.signal.fftconvolve(X1, kernel, mode="full")
-        Y[Ymask] = np.nan
-    else:
-        Y = sp.signal.fftconvolve(X, kernel, mode="full")
+    # Xmask = np.isnan(X)
+    # if Xmask.any():
+    #     Ymask = sp.signal.convolve(Xmask, np.ones(len(kernel),dtype=bool), mode="full")
+    #     X1 = X.copy()
+    #     X1[Xmask] = 0  # setting nan to 0 may result in high frequency artifacts.
+    #     Y = sp.signal.fftconvolve(X1, kernel, mode="full")
+    #     Y[Ymask] = np.nan
+    # else:
+    #     Y = sp.signal.fftconvolve(X, kernel, mode="full")
+    Y = sp.signal.convolve(X, kernel, mode="full", method="direct")
 
     if mode=="valid":
         return Y[len(kernel)-1:1-len(kernel)]

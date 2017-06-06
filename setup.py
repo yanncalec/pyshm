@@ -155,16 +155,16 @@ setup(
     'numpy>=1.12.1',
     'scipy>=0.19.0',
     'pandas>=0.20.1',
-    'matplotlib>=2.0.2',
+    # 'matplotlib>=2.0.2',
     'mpld3>=0.2',
     'colorama>=0.3.9',
-    'requests>=2.14.2'
-    # # 'statsmodels>=0.8.0'
+    'requests>=2.14.2',
+    # # 'statsmodels>=0.8.0',
     'cython>=0.25.2',
-    # # 'bokeh>=0.12'
+    # # 'bokeh>=0.12',
     'joblib>=0.11',
     'pywavelets>=0.5.2',
-    'setuptools>=27.2.0'  # not necessary
+    'setuptools>=27.2.0',  # not necessary
     ],
 
     # List additional groups of dependencies here (e.g. development

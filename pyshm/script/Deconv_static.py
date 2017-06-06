@@ -48,7 +48,7 @@ def Deconv_static_data(Xcpn, Ycpn, options):
     return _Deconv_static_data(Xcpn, Ycpn, options)
 
 
-def _Deconv_static_data(Xcpn, Ycpn, options):
+def _Deconv_static_data(Xcpn, Ycpn, Rcpn, Parms, options):
     """Deconvolution of static data.
 
     Args:
@@ -86,6 +86,8 @@ def _Deconv_static_data(Xcpn, Ycpn, options):
     # data for analysis
     Xvar = np.asarray(Xcpn[options.alocs]).T
     Yvar = np.asarray(Ycpn[options.alocs]).T
+    if Rcpn is not None:
+        Rvar = np.asarray(Rcpn[options.alocs]).T
 
     # compute valid values for training period
     options.trnperiod, options.Ntrn = Stat.training_period(Nt, tidx0=options.sidx, Ntrn=options.Ntrn)
@@ -155,6 +157,7 @@ def _Deconv_static_data(Xcpn, Ycpn, options):
         Resdic = {"Yprd":pd.DataFrame(Yprd.T, columns=options.alocs, index=Tidx),
                     "Yerr": pd.DataFrame(Yerr.T, columns=options.alocs, index=Tidx),
                     "Amatc":Amatc, "Acovc":Acovc}
+
     return Resdic
 
 
@@ -203,12 +206,14 @@ def main():
     #                                        epilog=__analysis_example__)
 
     for parser in [parser_ls, parser_bm]:
-        parser.add_argument("projdir", help="directory of a project in the database including the preprocessed static data.")
-        # parser.add_argument("infile", type=str, help="preprocessed data file containing all sensors of one project.")
+        # parser.add_argument("projdir", help="directory of a project in the database including the preprocessed static data.")
+        parser.add_argument("infile", type=str, help="json data file containing all sensors of one project.")
         # parser.add_argument("outdir", nargs='?', type=str, default=None, help="directory where results (figures and data files) will be saved.")
         parser.add_argument("outdir", type=str, help="directory where results (figures and data files) will be saved.")
 
         parser.add_argument("-v", "--verbose", dest="verbose", action="count", default=0, help="print messages.")
+
+        parser.add_argument("--raw", dest="raw", action="store_true", default=False, help="use non-transformed raw data (default: use transformed data).")
 
         sensor_opts = parser.add_argument_group("Sensor options")
         sensor_opts.add_argument("--alocs", dest="alocs", type=lambda s: [int(x) for x in s.split(',')], default=None, help="location ID of sensors to be analyzed (default=all sensors).", metavar="integers separated by \',\'")
@@ -268,9 +273,9 @@ def main():
 
     if options.subcommand.upper() in ["LS", "BM"]:
         # check the input data file
-        options.infile = os.path.join(options.projdir, "Preprocessed_static.pkl")
+        # options.infile = os.path.join(options.projdir, "Preprocessed_static.pkl")
         if not os.path.isfile(options.infile):
-            print("Preprocessed static data not found.")
+            print("Input data file not found.")
             raise FileNotFoundError(options.infile)
 
         if not os.path.isdir(options.outdir):

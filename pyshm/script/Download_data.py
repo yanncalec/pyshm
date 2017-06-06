@@ -41,6 +41,7 @@ def Download_data(dbdir, options):
     assert(response['result'] == 'SUCCESS')  # check the response from the server
     # print(session.cookies)
     # print(response)
+    # sys.exit()
 
     # token to use for next requests
     token = response['data']["tokenStore"]
@@ -50,6 +51,8 @@ def Download_data(dbdir, options):
     r = session.post("https://client.osmos-group.com/server/application.php", data=json.dumps(payload))
     response = json.loads(r.text)
     assert(response['result'] == 'SUCCESS')  # check the response from the server
+    # print(response)
+    # sys.exit()
 
     ListProject = response['data']  # List of projects
 

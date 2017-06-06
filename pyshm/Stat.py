@@ -168,7 +168,7 @@ def percentile(X0, ratio):
         return np.mean(X[idx[nz0:nz1+1]])
 
 
-def local_statistics(X, mwsize, mad=False, causal=False, drop=True):
+def local_statistics(X, mwsize, mad=False, causal=False, win_type='boxcar', drop=True):
     """Local mean and standard deviation estimation using pandas library.
 
     Args:
@@ -191,12 +191,12 @@ def local_statistics(X, mwsize, mad=False, causal=False, drop=True):
             raise TypeError("Input must be 1d or 2d array.")
 
     if mad:  # use median-based estimator
-        mErr = Err.rolling(window=mwsize, min_periods=1, center=not causal).median() #.bfill()
+        mErr = Err.rolling(window=mwsize, center=not causal).median() #.bfill()
         # sErr = 1.4826 * (Err-mErr).abs().rolling(window=mwsize, min_periods=1, center=not causal).median() #.bfill()
         sErr = (Err-mErr).abs().rolling(window=mwsize, min_periods=1, center=not causal).median() #.bfill()
     else:
-        mErr = Err.rolling(window=mwsize, min_periods=1, center=not causal).mean() #.bfill()
-        sErr = Err.rolling(window=mwsize, min_periods=1, center=not causal).std() #.bfill()
+        mErr = Err.rolling(window=mwsize, win_type=win_type, center=not causal).mean() #.bfill()
+        sErr = Err.rolling(window=mwsize, center=not causal).std() #.bfill()
 
     # drop the begining
     if drop:
@@ -269,7 +269,8 @@ def Hurst(data, mwsize, sclrng=None, wvlname="haar"):
         yvar = yvar0 - my
         a = np.dot(yvar, xvar) / np.dot(xvar, xvar)
         b = my - a * mx
-        return a, b
+        v = np.sqrt(np.mean((a * xvar0 + b - yvar0)**2))
+        return a, b, v
 
     import pywt
     import pandas as pd
@@ -278,49 +279,47 @@ def Hurst(data, mwsize, sclrng=None, wvlname="haar"):
     wvl = pywt.Wavelet(wvlname)  # wavelet object
     maxlvl = pywt.dwt_max_level(Nt, wvl)  # maximum level of decomposition
     if sclrng is None:  # range of scale for estimation
-        sclrng = (0, maxlvl)
+        sclrng = (1, maxlvl)
     else:
-        sclrng = (max(0,sclrng[0]), min(maxlvl, sclrng[1]+1))
+        sclrng = (max(1,sclrng[0]), min(maxlvl, sclrng[1]))
+
     # Compute the continuous wavelet transform
     C0 = []
-    for n in range(1, maxlvl+1):
+    for n in range(sclrng[0], sclrng[1]+1): # (1, maxlvl+1):
         phi, psi, x = wvl.wavefun(level=n) # x is the grid for wavelet
-        # C0.append(scipy.signal.fftconvolve(data, psi/2**((n-1)/2), mode="same"))
-        C0.append(Tools.safe_convolve(data, psi/2**((n-1)/2), mode="samel"))
+        # C0.append(Tools.safe_convolve(data, psi[::-1]/2**((n-1)/2.), mode="samel"))
+        C0.append(scipy.signal.convolve(data, psi[::-1]/2**((n-1)/2.), mode="full", method="direct")[:1-len(psi)])
     C = np.asarray(C0)  # matrix of wavelet coefficients, each column is a vector of coefficients
 
     # Compute the wavelet spectrum
-    S = np.asarray(pd.DataFrame((C**2).T).rolling(window=mwsize, center=True, min_periods=1).mean()).T  # of dimension maxlvl-by-Nt
-    # S = C**2
-    # S0 = []
-    # for n in range(0, maxlvl-1): #sclrng):
-    #     Cs = pd.Series(C[n, :]**2)  # wavelet spectrum in pandas format
-    #     S0.append(np.asarray(Cs.rolling(window=mwsize, center=True, min_periods=1).mean())) #, win_type="boxcar").mean())
-    # S = np.asarray(S0)
+    kernel = scipy.signal.triang(mwsize)
+    # kernel = np.ones(mwsize)/mwsize
+    S = Tools.safe_convolve(C**2, kernel, mode="samel", axis=-1)
 
     # Linear regression
-    H, B = np.zeros(Nt), np.zeros(Nt)
-    # H, B, V = np.zeros(Nt), np.zeros(Nt), np.zeros((2, Nt))
-    xvar = np.arange(*sclrng)  # explanatory variable
+    # H, B = np.zeros(Nt), np.zeros(Nt)
+    H, B, V = np.zeros(Nt), np.zeros(Nt), np.zeros(Nt)
+    xvar = np.arange(sclrng[0], sclrng[1]+1)  # explanatory variable
 
     for t in range(Nt):
-        yvar = np.log2(S[sclrng[0]:sclrng[1],t])
-        a, b = scalar_linear_regression(yvar, xvar)
-        H[t] = max(min((a-1)/2,1), 0)
+        yvar = np.log2(S[:,t])
+        # yvar = np.log2(S[sclrng[0]:sclrng[1],t])
+        a, b, v = scalar_linear_regression(yvar, xvar)
+        H[t] = max(min((a-1)/2., 1.), 0.)  # since log2(S_j) = (2H+1)*j + e
         B[t] = b
-        # V[:,t] = v
+        V[t] = v
 
-    # roll to get a causal result
+    # due to the smoothing in the compute of the spectrum, we have to roll to get a causal result
     sc = mwsize // 2
     H = np.roll(H, -sc); H[-sc:] = np.nan
     B = np.roll(B, -sc); B[-sc:] = np.nan
-    # V = np.roll(V, -sc); V[:,-sc:] = np.nan
+    V = np.roll(V, -sc); V[-sc:] = np.nan
 
     # drop the begining
     # H[:mwsize] = np.nan
     # B[:mwsize] = np.nan
     # V[:,:mwsize] = np.nan
-    return H, B
+    return H, B, V
 
 
 def Hurst_rs(X0, nrng=None, alc=False):
@@ -436,11 +435,11 @@ def percentile_subset(func):
 
 def dim_reduction_cca(func):
     @wraps(func)
-    def newfunc(Y0, X0, W0, *args, vthresh=0.5, cdim=None, **kwargs):
+    def newfunc(Y0, X0, W0, *args, vthresh=1e-3, cdim=None, **kwargs):
         """Dimension reduction in multivariate linear regression by CCA.
 
         Args:
-            vthresh (float): threshold on the value of correlations
+            vthresh (float): see dim_reduction_pca
         """
         # dimension reduction: either by vthresh or by cdim
         if vthresh > 0 or cdim is not None:
@@ -448,16 +447,18 @@ def dim_reduction_cca(func):
             _, (V, S, _), Ryx = cca(Y0, X0, W=W0)
 
             if cdim is None:  # cdim not given, use vthresh to compute cdim
-                cdim = np.sum(S/S[0] > vthresh)  # reduced dimension
-                # print(S/S[0], cdim)
-
-                # cdim = np.sum(np.abs(np.diag(Ryx)) > vthresh)
-                # print(np.abs(np.diag(Ryx)), cdim)
-
-            if cdim == 0:  # check cdim
-                warnings.warn("cdim==0: the reduced dimension is set to 1.")
-                cdim = 1
-                # raise ValueError("dim_reduction: output dimension is zero, relax the threshold.")
+                assert 0. <= vthresh <=1.
+                # two possible strategies:
+                # 1. by relative value of sv
+                # toto = S/S[0]
+                # cdim = np.sum(toto >= vthresh)
+                # 2. by cumulation of sv
+                toto = np.cumsum(S) / np.sum(S)
+                cdim = np.sum(toto <= 1-vthresh)
+            else:  # if cdim is given, vthresh has no effect
+                pass
+            assert cdim>0  # check cdim
+            # raise ValueError("dim_reduction: output dimension is zero, relax the threshold.")
 
             # Xcof = V.T @ (X0 - mean(X0)[:, np.newaxis])
             # Ycof = U.T @ (Y0 - mean(Y0)[:, np.newaxis])
@@ -486,7 +487,8 @@ def dim_reduction_pca(func):
         """Dimension reduction in multivariate linear regression.
 
         Args:
-            vthresh (float): threshold on the singular values S[0], S[1]... Only those such that S[n]/S[0]>vthresh will be kept after the dimension reduction
+            vthresh (float): relative threshold in the (SVD based) dimension reduction, between 0 and 1. 1-vthresh is the percentage of information kept, i.e. 90 percent of information is kept if vthresh=0.1. Have no effect if cdim is set.
+            cdim (int): number of dimension to be kept.
             corrflag (bool): if True use the correlation matrix instead of the covariance matrix
         """
         # dimension reduction: either by vthresh or by cdim
@@ -502,12 +504,18 @@ def dim_reduction_pca(func):
             _, V, S = pca(X0, W=W0, nc=None, corrflag=corrflag)  # pca coefficients
 
             if cdim is None:  # cdim not given, use vthresh to compute cdim
-                cdim = np.sum(S/S[0] > vthresh)  # reduced dimension
-                # print(S/S[0], cdim)
-            if cdim == 0:  # check cdim
-                warnings.warn("cdim==0: the reduced dimension is set to 1.")
-                cdim = 1
-                # raise ValueError("dim_reduction: output dimension is zero, relax the threshold.")
+                assert 0. <= vthresh <=1.
+                # two possible strategies:
+                # 1. by relative value of sv
+                # toto = S/S[0]
+                # cdim = np.sum(toto >= vthresh)
+                # 2. by cumulation of sv
+                toto = np.cumsum(S) / np.sum(S)
+                cdim = np.sum(toto <= 1-vthresh)
+            else:  # if cdim is given, vthresh has no effect
+                pass
+            assert cdim>0  # check cdim
+            # raise ValueError("dim_reduction: output dimension is zero, relax the threshold.")
 
             # Xcof = V.T @ (X0 - mean(X0)[:, np.newaxis])
             Xcof = V.T @ X0
@@ -554,8 +562,19 @@ def dim_reduction_bm(func):
             #     Cyx = cov(Yvar[:,tidx0:tidx1], Xvar[:,tidx0:tidx1], W=None)  # covariance matrix
             # _, S, U=la.svd(Cyx); U=U.T
             _, U, S = pca(Xvar[:,tidx0:tidx1], nc=None, corrflag=False)  # pca coefficients
-            cdim = np.sum(S/S[0] > vthresh)  # reduced dimension
-            # print(S/S[0], cdim)
+            if cdim is None:  # cdim not given, use vthresh to compute cdim
+                assert 0. <= vthresh <=1.
+                # two possible strategies:
+                # 1. by relative value of sv
+                # toto = S/S[0]
+                # cdim = np.sum(toto >= vthresh)
+                # 2. by cumulation of sv
+                toto = np.cumsum(S) / np.sum(S)
+                cdim = np.sum(toto <= 1-vthresh)
+            else:  # if cdim is given, vthresh has no effect
+                pass
+            assert cdim>0  # check cdim
+            # raise ValueError("dim_reduction: output dimension is zero, relax the threshold.")
 
             # # by cca:
             # _, (U, S, _), Ryx = cca(Yvar[:,tidx0:tidx1], Xvar[:,tidx0:tidx1], W=None)
@@ -820,5 +839,22 @@ def multi_linear_regression_bm(Y, X, sigmaq2, sigmar2, x0=0., p0=1., smooth=Fals
 
     return (Ka, Pflt[:,:-dimobs,:-dimobs]), (Cvec, Pflt[:,-dimobs:,-dimobs:]), Err, Sig
     # return Ka, Cvec, Err, Sig
+
+
+###### Alarms #####
+def detect_periods_of_instability(hexp, hthresh, hgap=0, mask=None):
+    # hexp = np.asarray(hexp0).copy(); hexp[np.isnan(hexp0)] = -np.inf
+    # if hgap > 0:
+    #     # with post-processing
+    #     hidc = Tools.L_filter(np.int32(hexp>hthresh), wsize=hgap)>0  # non linear filter, slower
+    #     # hidc = scipy.signal.convolve(hexp>ithresh, np.ones(options.hgap, dtype=bool), mode="same")>0
+    # else:
+    #     # no post-processing
+    hidc = hexp>hthresh
+    # apply the mask
+    if mask is not None:
+        hidc[np.where(mask)[0]] = False
+    blk = Tools.find_block_true(hidc)  # starting-ending indexes of blocks of instability
+    return [b for b in blk if b[1]-b[0] > hgap]
 
 

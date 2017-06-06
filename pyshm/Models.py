@@ -69,6 +69,8 @@ def deconv(Y0, X0, lag, dord=1, pord=1, snr2=None, clen2=None, dspl=1, sidx=0, N
     assert X0.ndim == Y0.ndim == 2
     assert X0.shape[1] == Y0.shape[1]
     assert pord >= dord
+    # if pord>1 or dord>1:
+    #     raise ValueError('pord>1 or dord>1 not supported!')
 
     Nt = X0.shape[1]  # length of observations
 
@@ -120,15 +122,27 @@ def deconv(Y0, X0, lag, dord=1, pord=1, snr2=None, clen2=None, dspl=1, sidx=0, N
     #     Amat[np.abs(Amat)<kthresh] = 0
 
     # prediction
-    Xcmv = Tools.mts_cumview(X0, lag)
+
+    # Modified version: return A*X(t) + P(t)
+    Xcmv0 = Tools.mts_cumview(X0, lag)
+    # polynominal trend
+    Xcmv1 = Tools.dpvander(np.arange(Nt)/Nt, pord, 0)
+    Xcmv = np.vstack([Xcmv0, Xcmv1[:(pord-dord+1),:]])
     # Xcmv[np.isnan(Xcmv)] = 0  # Remove nans will introduce large values around discontinuties
-    Yflt = Amat0 @ Xcmv
+    Yflt = np.hstack([Amat, Cvec]) @ Xcmv
+    # Yflt0 = Amat0 @ Xcmv0 + Cvec
     if dord > 0:
         Yprd = Yflt - Tools.polyprojection(Yflt, deg=dord-1, axis=-1)  # projection \Psi^\dagger \Psi
     else:
         Yprd = Yflt
 
-    # return Yprd, (Amat, Cvec, Err, Sig), Amatc #(U, Sy, cdimy, V, Sx, cdimx)
+    # Original version
+    # Yflt = Amat @ Xcmv
+    # if dord > 0:
+    #     Yprd = Yflt - Tools.polyprojection(Yflt, deg=dord-1, axis=-1)  # projection \Psi^\dagger \Psi
+    # else:
+    #     Yprd = Yflt + Cvec
+
     return Yprd, Amat, Amatc
 
 
@@ -143,7 +157,7 @@ def deconv_bm(Y0, X0, lag, dord=1, pord=1, sigmaq2=10**-6, sigmar2=10**-3, x0=0.
         pord (int): order of polynomial trend
         sidx (int): starting index of the training period
         Ntrn (int): length of the training period
-        vthresh (float): threshold in dimension reduction, no reduction if set to 0.
+        vthresh (float): see deconv()
         cdim (int): desired dimension, same effect as vthresh, no reduction if set to None.
         sigmaq2 (float): variance of innovation noise
         sigmar2 (float): variance of observation noise
@@ -203,7 +217,7 @@ def deconv_bm(Y0, X0, lag, dord=1, pord=1, sigmaq2=10**-6, sigmar2=10**-3, x0=0.
         # Remark: Yprd has shape Y0.shape[1]*Nt
         Yprd = Yflt - Tools.polyprojection(Yflt, deg=dord-1, axis=-1)  # prediction: projection \Psi^\dagger \Psi
     else:
-        Yprd = Yflt
+        Yprd = Yflt + Cvec[np.newaxis,:]
 
     # # covariance matrix: abandonned
     # Ycov = np.zeros((Nt,Y0.shape[0],Y0.shape[0]))
@@ -215,14 +229,15 @@ def deconv_bm(Y0, X0, lag, dord=1, pord=1, sigmaq2=10**-6, sigmar2=10**-3, x0=0.
     return Yprd, (Amat, Acov), (Amatc, Acovc)
 
 
-def ssproj(X0, cdim=1, vthresh=None, corrflag=False, sidx=0, Ntrn=None):
+def ssproj(X0, cdim=1, vthresh=None, corrflag=False, sidx=0, Ntrn=None, dflag=True):
     """Projection of a multivariate time series onto a subspace.
 
     Args:
         X0 (2d array): input
         cdim (int): dimension of the subspace, if cdim==0 return zero
-        vthresh (float): relative threshold, if given cdim will be ignored
+        vthresh (float): see deconv(), if cdim is set vthresh will be ignored.
         corrflag (bool): if True use correlation matrix for PCA
+        dflag (bool): if True take the derivative of the input
         sidx (int): starting index of the training period
         Ntrn (int): length of the training period
     Returns:
@@ -238,9 +253,12 @@ def ssproj(X0, cdim=1, vthresh=None, corrflag=False, sidx=0, Ntrn=None):
     else:
         tidx0, tidx1 = sidx, sidx+Ntrn
     # print(tidx0, tidx1)
-    # take derivative to transform to a stationary time series
-    X1 = np.diff(X0[:,tidx0:tidx1], axis=-1)
-    # another option is to centralize X1 = centralize(X0)
+    if dflag:
+        # take derivative to transform to a stationary time series
+        X1 = np.diff(X0[:,tidx0:tidx1], axis=-1)
+    else:
+        # another option is to centralize
+        X1 = Stat.centralize(X0)
 
     # PCA of transformed time series
 
@@ -258,20 +276,23 @@ def ssproj(X0, cdim=1, vthresh=None, corrflag=False, sidx=0, Ntrn=None):
 
     # subspace dimension
     if cdim is None: # if cdim is not given, use vthresh to determine it
-        assert 0 < vthresh <=1.
+        assert 0. <= vthresh <=1.
+        # two possible strategies:
+        # 1. by relative value of sv
         # toto = S/S[0]
-        # cdim = np.sum(toto > vthresh)
-        toto = np.cumsum(S/np.sum(S))
-        cdim = np.where(toto >= vthresh)[0][0]+1
-        # print(cdim,toto)
-        # cdim = np.sum(S/S[0] > vthresh)
-        # cdim = np.sum(S/np.sum(S) > vthresh)
+        # cdim = np.sum(toto >= vthresh)
+        # 2. by cumulation of sv
+        toto = np.cumsum(S) / np.sum(S)
+        cdim = np.sum(toto <= 1-vthresh)
+        cdim = max(1, cdim)
     else:  # if cdim is given, vthresh has no effect
         pass
 
     # projection
     if cdim > 0:
+        # Xprj = U[:,:cdim] @ U[:,:cdim].T @ Stat.centralize(X0)
         Xprj = U[:,:cdim] @ U[:,:cdim].T @ X0
+
         # # or by integration, not working well in practice
         # dXprj = U[:,:cdim] @ U[:,:cdim].T @ np.diff(X0, axis=-1)
         # dXprj[np.isnan(dXprj)] = 0
@@ -289,7 +310,7 @@ def mutdecorr(Y0, lag, vthresh=1e-3): #, sidx=0, Ntrn=None):
         locs = list(range(Y0.shape[0]))  # list of row index
         locs.pop(n)  # exclude the current row
         # Regression of the current row by the other rows
-        toto, *_ = Stat.deconv(Y0[[n],:], Y0[locs,:], lag, dord=1, pord=1, clen2=None, dspl=1, vthresh=vthresh)
+        toto, *_ = Models.deconv(Y0[[n],:], Y0[locs,:], lag, dord=1, pord=1, clen2=None, dspl=1, vthresh=vthresh)
         Yprd.append(toto[0])  # toto is 1-by-? 2d array
     return np.asarray(Yprd)
 

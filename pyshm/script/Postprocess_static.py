@@ -24,6 +24,7 @@ def Hurstfunc(loc, X, mwsize, hrng):
     Y, *_ = Stat.Hurst(np.asarray(X), mwsize, sclrng=hrng, wvlname="haar")  # Hurst exponent
     return {loc: Y}
 
+
 def compute_local_statistics(Yerr, mad, mwsize):
     """Compute the local statistics: mean and standard deviation and normalized
     observation.

@@ -117,6 +117,7 @@ def per_sensor_result(X, Locations, aflag=True):
 
     return Res
 
+raw2mm = lambda p, x: (p[0]*x**2+p[1]*x+p[2])/1000.-2.
 
 def static_data_analysis_template(func):
     """Template for static data analysis algorithms.
@@ -188,6 +189,60 @@ def static_data_analysis_template(func):
         return resdic
     return newfunc
 
+
+def static_data_analysis_template_ori(func):
+    """Template for static data analysis algorithms for MongoDB raw data.
+
+    This functional prepares data for the core algorithm and saves the
+    results in a dictionary. The core algorithm is passed by 'func' which
+    must be callable via the interface
+
+        resdic = func(options, Xcpn, Ycpn, *args, **kwargs)
+
+    the returned dictionary will be auguemented by some extra informations.
+    """
+    from pyshm import OSMOS
+    # import os
+    # import pickle
+    # import sys
+    # import json
+    # import numpy as np
+    # import pandas as pd
+    # import colorama
+    # import inspect
+
+    @wraps(func)
+    def newfunc(infile, outfile0, options, *args, **kwargs):
+        Xcpn, Ycpn, Rcpn, Midx = pyshm.OSMOS.prepare_static_data_mdb(infile, (options.time0, options.time1))
+
+        # Call the core function and save results in a dictionary
+        resdic = func(Xcpn, Ycpn, options, *args, **kwargs)  # side effect on options
+        resdic.update({'func_name':options.func_name, 'Xcpn':Xcpn, 'Ycpn':Ycpn, 'Rcpn':Rcpn, 'Midx':Midx, 'algo_options':vars(options)})
+
+        # Make the output directory if necessary
+        idx = outfile0.rfind(os.path.sep)
+        outdir = outfile0[:idx]
+        try:
+            os.makedirs(outdir)
+        except OSError:
+            pass
+
+        # Save the results in pickle format
+        outfile = outfile0+'.pkl'
+        with open(outfile, 'wb') as fp:
+            pickle.dump(resdic, fp)
+        # # Save the results in json format:
+        # # some non-standard objects might be removed, and non-float values will be casted as float
+        # resjson = to_json(resdic, verbose=options.verbose)
+        # outfile = outfile0+'.json'
+        # with open(outfile, 'w') as fp:
+        #     json.dump(resjson, fp, cls=MyEncoder)
+
+        if options.verbose:
+            print('Results saved in\n{}'.format(outfile))
+
+        return resdic
+    return newfunc
 
 
 # from . import Download_data
