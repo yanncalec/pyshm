@@ -537,20 +537,21 @@ def dim_reduction_bm(func):
     """Dimension reduction in Brownian Motion model multivariate linear regression.
     """
     @wraps(func)
-    def newfunc(Yvar0, Xvar0, sigmaq2, sigmar2, x0, p0, smooth=False, sidx=0, Ntrn=None, vthresh=0., cdim=None, covflag=False, rescale=True):
+    def newfunc(Yvar0, Xvar0, sigmaq2, sigmar2, x0, p0, smooth=False, sidx=0, Ntrn=None, vthresh=0., cdim=None, covflag=False):
         Nt = Xvar0.shape[1]  # length of observations
         # training data for dim reduction
         (tidx0, tidx1), _ = training_period(Nt, tidx0=sidx, Ntrn=Ntrn)  # valid training period
 
-        # rescale only Y variable
-        if rescale:
-            # dXvar0 = np.diff(Xvar0, axis=-1)
-            # Xscl = scipy.linalg.sqrtm(cov(dXvar0[:,tidx0:tidx1], dXvar0[:,tidx0:tidx1]))
-            Yscl = scipy.linalg.sqrtm(cov(Yvar0[:,tidx0:tidx1], Yvar0[:,tidx0:tidx1]))
-            Xvar, Yvar = Xvar0, la.inv(Yscl) @ Yvar0
-        else:
-            Yscl = np.eye(Yvar0.shape[0])
-            Xvar, Yvar = Xvar0, Yvar0
+        # # rescale only Y variable
+        # if rescale:
+        #     # dXvar0 = np.diff(Xvar0, axis=-1)
+        #     # Xscl = scipy.linalg.sqrtm(cov(dXvar0[:,tidx0:tidx1], dXvar0[:,tidx0:tidx1]))
+        #     Yscl = scipy.linalg.sqrtm(cov(Yvar0[:,tidx0:tidx1], Yvar0[:,tidx0:tidx1]))
+        #     Xvar, Yvar = Xvar0, la.inv(Yscl) @ Yvar0
+        # else:
+        #     Yscl = np.eye(Yvar0.shape[0])
+        #     Xvar, Yvar = Xvar0, Yvar0
+        Xvar, Yvar = Xvar0, Yvar0
 
         # dimension reduction: either by vthresh or by cdim
         if vthresh > 0 or cdim is not None:
@@ -598,16 +599,16 @@ def dim_reduction_bm(func):
             Acov = np.asarray([Wop @ Acovc[t,] @ Wop.T for t in range(Nt)]) if covflag else None
         else:
             (Amat, Acov), (Cvec, Ccov), Err, Sig = func(Yvar, Xvar, sigmaq2, sigmar2, x0=x0, p0=p0, smooth=smooth)
-            U, S = None
+            U, S = None, None
             Amatc, Acovc = Amat, Acov
 
-        if rescale:  # inverse rescaling
-            for t in range(Nt):
-                Amat[t,] = Yscl @ Amat[t,]
-                if Acov is not None:
-                    Acov[t,] = Yscl @ Acov[t,] @ Yscl.T
-                Cvec[t,] = Yscl @ Cvec[t,]
-                Ccov[t,] = Yscl @ Ccov[t,] @ Yscl.T
+        # if rescale:  # inverse rescaling
+        #     for t in range(Nt):
+        #         Amat[t,] = Yscl @ Amat[t,]
+        #         # if Acov is not None:
+        #         #     Acov[t,] = Yscl @ Acov[t,] @ Yscl.T
+        #         Cvec[t,] = Yscl @ Cvec[t,]
+        #         Ccov[t,] = Yscl @ Ccov[t,] @ Yscl.T
 
         return ((Amat, Acov), (Cvec, Ccov), Err, Sig), ((Amatc, Acovc), U, S)
         # The returned variables are similar to those in dim_reduction_pca

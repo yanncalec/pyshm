@@ -191,7 +191,7 @@ def deconv_bm(Y0, X0, lag, dord=1, pord=1, sigmaq2=10**-6, sigmar2=10**-3, x0=0.
     regressor = Stat.dim_reduction_bm(Stat.multi_linear_regression_bm)
 
     # regression
-    ((Amat, Acov), (Cvec, Ccov), Err, Sig), ((Amatc, Acovc), *_) = regressor(Yvar, Xvar, sigmaq2, sigmar2, x0, p0, smooth=smooth, sidx=sidx, Ntrn=Ntrn, vthresh=vthresh, cdim=cdim, rescale=True)
+    ((Amat, Acov), (Cvec, Ccov), Err, Sig), ((Amatc, Acovc), *_) = regressor(Yvar, Xvar, sigmaq2, sigmar2, x0, p0, smooth=smooth, sidx=sidx, Ntrn=Ntrn, vthresh=vthresh, cdim=cdim)
 
     Amat0 = Amat[:, :, :Amat.shape[-1]-(pord-dord)]  # kernel matrices without polynomial trend
 
@@ -217,8 +217,8 @@ def deconv_bm(Y0, X0, lag, dord=1, pord=1, sigmaq2=10**-6, sigmar2=10**-3, x0=0.
         # Remark: Yprd has shape Y0.shape[1]*Nt
         Yprd = Yflt - Tools.polyprojection(Yflt, deg=dord-1, axis=-1)  # prediction: projection \Psi^\dagger \Psi
     else:
-        Yprd = Yflt + Cvec[np.newaxis,:]
-
+        # Yprd = Yflt + Cvec.T # transpose since the axis 0 in Cvec is time
+        Yprd = Yflt
     # # covariance matrix: abandonned
     # Ycov = np.zeros((Nt,Y0.shape[0],Y0.shape[0]))
     # for t in range(Nt):

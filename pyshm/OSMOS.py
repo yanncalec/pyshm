@@ -906,15 +906,7 @@ tfAbaqueTemp = np.asarray([
 #     return np.floor(v1*2)/2 if round05_flag else np.round(v1, decimals=nbdec)
 
 
-def _raw2celsuis(raw):
-    """Convert raw temperature to celsuis.
-
-    Args:
-        raw (float): raw value
-    Return:
-        temperature in celsuis
-    """
-
+def _raw2celsuis_scalar(raw):
     T = tfAbaqueTemp
     try:
         v0 = 10000. * raw / (1023. - raw)
@@ -924,16 +916,36 @@ def _raw2celsuis(raw):
         v1 = np.nan
     return v1
 
+_raw2celsuis = np.vectorize(_raw2celsuis_scalar)  # vectorized version
 
-# vectorized version
-# raw2celsuis = np.frompyfunc(_raw2celsuis, 1, 1)
-raw2celsuis = np.vectorize(_raw2celsuis)
+def raw2celsuis(V):
+    """Convert raw temperature to celsuis.
 
-
-def raw2millimeters(raw, ref, a, b, c):
-    """Convert raw elongation to millimeter
+    Args:
+        V (pandas DataFrame): V[loc] is the raw temperature of loc
+    Returns:
+        a pandas DataFrame of temperature in celsuis
     """
-    return (a*(value/ref)**2 + b*(value/ref) + c)/1000 -2
+    toto = _raw2celsuis(np.asarray(V).T)
+    return pd.DataFrame(toto.T, columns=V.columns, index=V.index)
+
+
+def _raw2millimeters(x, a, b, c):
+    return (a*x**2 + b*x + c)/1000.-2.
+
+def raw2millimeters(V, Parms):
+    """Convert raw elongation to millimeters.
+
+    Args:
+        V (pandas DataFrame): V[loc] is the raw elongation of loc
+        Parms (dict): Parms[loc] is the tuple of parameters (a, b, c)
+    Returns:
+        a pandas DataFrame of elongation in millimeters
+    """
+    toto={}
+    for loc in V.keys():
+        toto[loc] = _raw2millimeters(np.asarray(V[loc]), *Parms[loc])
+    return pd.DataFrame(toto, index=V.index)
 
 
 def _mongo_transform(X):
