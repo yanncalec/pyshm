@@ -25,6 +25,37 @@ class LIRIS:
     def __init__(self, **entries):
         self.__dict__.update(entries)
 
+def _retrieve_LIRIS_info(PID):
+    # disable certificate check
+    requests.packages.urllib3.disable_warnings()
+
+    # open the session
+    session = requests.session()
+
+    # get the token
+    payload = {"token":"null","action":"loginClient","data":{"email":"be@osmos-group.com","password":"osmos"}}
+    r = session.post("https://client.osmos-group.com/server/application.php", data=json.dumps(payload))
+    response = json.loads(r.text)
+    assert(response['result'] == 'SUCCESS')  # check the response from the server
+
+    # token to use for next requests
+    token = response['data']["tokenStore"]
+
+    payload = {"token": token,
+            "action": "getlirisfromproject",
+            "data": {"projectkeyid": PID}}
+    r = session.post("https://client.osmos-group.com/server/application.php",
+                    data=json.dumps(payload))
+    toto = json.loads(r.text)
+
+    if toto['result']=='SUCCESS' and len(toto['data']['records'])>0:
+#         print(toto)
+        P = pd.DataFrame(toto['data']['records'])
+        P['pid'] = PID
+        return P
+    else:
+        return None
+
 
 def retrieve_LIRIS_info(PIDs):
     """Retrive LIRIS info of projects from OSMOS server.
@@ -34,37 +65,6 @@ def retrieve_LIRIS_info(PIDs):
     Returns:
         pandas DataFrame
     """
-    def _retrieve_LIRIS_info(PID):
-        # disable certificate check
-        requests.packages.urllib3.disable_warnings()
-
-        # open the session
-        session = requests.session()
-
-        # get the token
-        payload = {"token":"null","action":"loginClient","data":{"email":"be@osmos-group.com","password":"osmos"}}
-        r = session.post("https://client.osmos-group.com/server/application.php", data=json.dumps(payload))
-        response = json.loads(r.text)
-        assert(response['result'] == 'SUCCESS')  # check the response from the server
-
-        # token to use for next requests
-        token = response['data']["tokenStore"]
-
-        payload = {"token": token,
-                "action": "getlirisfromproject",
-                "data": {"projectkeyid": PID}}
-        r = session.post("https://client.osmos-group.com/server/application.php",
-                        data=json.dumps(payload))
-        toto = json.loads(r.text)
-
-        if toto['result']=='SUCCESS' and len(toto['data']['records'])>0:
-    #         print(toto)
-            P = pd.DataFrame(toto['data']['records'])
-            P['pid'] = PID
-            return P
-        else:
-            return None
-
     L = []
     for pid in PIDs:
         P = _retrieve_LIRIS_info(pid)
@@ -238,6 +238,9 @@ def update_LIRIS_data_by_project(token, session, PID, projdir, endtime=None, ver
                         fname0 = 'Raw_[Start_{}]_[End_{}]].pkl'.format(to_valid_time_format(t_start1), to_valid_time_format(t_end1))
                         fname = os.path.join(datadir, fname0)
                         # print(fname)
+                        # with open(fname, 'wb') as fp:
+                        #     json.dumps({'LIRIS':record, 'Data':Measures0},  # record is the LIRIS information
+                        #             fp)
                         with open(fname, 'wb') as fp:
                             pickle.dump({'LIRIS':record, 'Data':Measures0},  # record is the LIRIS information
                                         fp, protocol=pickle.HIGHEST_PROTOCOL)
@@ -943,6 +946,7 @@ def raw2millimeters(V, Parms):
         a pandas DataFrame of elongation in millimeters
     """
     toto={}
+    # print(V.keys(), Parms.keys())
     for loc in V.keys():
         toto[loc] = _raw2millimeters(np.asarray(V[loc]), *Parms[loc])
     return pd.DataFrame(toto, index=V.index)
@@ -988,7 +992,7 @@ def _mongo_transform(X):
         elon = (a*v0**2 + b*v0 + c)/1000 - 2
 #                 temp = raw2celsuis(t0)
 
-    temp = raw2celsuis(t0)
+    temp = _raw2celsuis(t0)
 
     return pd.DataFrame({'ElongationTfm':elon, 'TemperatureTfm':temp, 'ElongationRaw':m0, 'TemperatureRaw':t0, 'Reference':r0, 'parama':a, 'paramb':b, 'paramc':c}, index=P['date']).sort_index()
 

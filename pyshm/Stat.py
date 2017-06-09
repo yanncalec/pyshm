@@ -310,7 +310,7 @@ def Hurst(data, mwsize, sclrng=None, wvlname="haar"):
         V[t] = v
 
     # due to the smoothing in the compute of the spectrum, we have to roll to get a causal result
-    sc = mwsize // 2
+    sc = mwsize # // 2
     H = np.roll(H, -sc); H[-sc:] = np.nan
     B = np.roll(B, -sc); B[-sc:] = np.nan
     V = np.roll(V, -sc); V[-sc:] = np.nan
@@ -533,25 +533,51 @@ def dim_reduction_pca(func):
     return newfunc
 
 
+
 def dim_reduction_bm(func):
     """Dimension reduction in Brownian Motion model multivariate linear regression.
     """
     @wraps(func)
-    def newfunc(Yvar0, Xvar0, sigmaq2, sigmar2, x0, p0, smooth=False, sidx=0, Ntrn=None, vthresh=0., cdim=None, covflag=False):
+    def newfunc(Yvar0, Xvar0, sigmaq2, sigmar2, x0, p0, smooth=False, sidx=0, Ntrn=None, vthresh=0., cdim=None, covflag=True, rescale=True):
         Nt = Xvar0.shape[1]  # length of observations
         # training data for dim reduction
         (tidx0, tidx1), _ = training_period(Nt, tidx0=sidx, Ntrn=Ntrn)  # valid training period
 
-        # # rescale only Y variable
-        # if rescale:
-        #     # dXvar0 = np.diff(Xvar0, axis=-1)
-        #     # Xscl = scipy.linalg.sqrtm(cov(dXvar0[:,tidx0:tidx1], dXvar0[:,tidx0:tidx1]))
-        #     Yscl = scipy.linalg.sqrtm(cov(Yvar0[:,tidx0:tidx1], Yvar0[:,tidx0:tidx1]))
-        #     Xvar, Yvar = Xvar0, la.inv(Yscl) @ Yvar0
-        # else:
-        #     Yscl = np.eye(Yvar0.shape[0])
-        #     Xvar, Yvar = Xvar0, Yvar0
-        Xvar, Yvar = Xvar0, Yvar0
+        # Rescaling makes sigmaq2, sigmar2 insensible to the numerical amplitude of Yvar0, Xvar0.
+        def _normalize(X0):
+            mX = mean(X0)[:, np.newaxis]
+            Cm = cov(X0, X0)
+            if X0.shape[0]>1:
+                U, S, _ = la.svd(Cm)
+                B = U @ np.diag(np.sqrt(S))
+                Xn = np.diag(1/np.sqrt(S)) @ U.T @ (X0 - mX)
+            else:
+                B = 1/np.sqrt(Cm)
+                Xn = B * (X0 - mX)
+            return Xn, mX, B
+
+        if rescale:
+            Yscl = np.sqrt(np.trace(cov(Yvar0[:,tidx0:tidx1], Yvar0[:,tidx0:tidx1])))
+            Yvar = Yvar0 / Yscl
+            Xscl = np.sqrt(np.trace(cov(Xvar0[:,tidx0:tidx1], Xvar0[:,tidx0:tidx1])))
+            Xvar = Xvar0 / Xscl
+
+            # _, Ym, Yscl = _normalize(Yvar0[:,tidx0:tidx1])
+            # Yvar = la.inv(Yscl) @ (Yvar0)
+            # _, Xm, Xscl = _normalize(Xvar0[:,tidx0:tidx1])
+            # Xvar = Xvar0
+            # Xscl_inv = la.inv(Xscl)
+            # Xvar = Xscl_inv @ (Xvar0)
+
+            # # rescaling won't work if the mean is substracted!
+            # Xvar = la.inv(Xscl) @ (Xvar0 - Xm)
+            # Yvar = la.inv(Yscl) @ (Yvar0 - Ym)
+        else:
+            # Xscl = np.eye(Xvar0.shape[0])
+            # Yscl = np.eye(Yvar0.shape[0])
+            Xvar, Yvar = Xvar0, Yvar0
+
+        # Xvar, Yvar = Xvar0, Yvar0
 
         # dimension reduction: either by vthresh or by cdim
         if vthresh > 0 or cdim is not None:
@@ -596,18 +622,35 @@ def dim_reduction_bm(func):
             W = U[:, :cdim]  # analysis matrix of subspace basis
             Wop = Tools.matprod_op_right(W.T, Amatc.shape[1])
             Amat = np.asarray([Amatc[t,] @ W.T for t in range(Nt)])
-            Acov = np.asarray([Wop @ Acovc[t,] @ Wop.T for t in range(Nt)]) if covflag else None
+            Acov = np.asarray([Wop @ Acovc[t,] @ Wop.T for t in range(Nt)]) # if covflag else None
         else:
             (Amat, Acov), (Cvec, Ccov), Err, Sig = func(Yvar, Xvar, sigmaq2, sigmar2, x0=x0, p0=p0, smooth=smooth)
             U, S = None, None
             Amatc, Acovc = Amat, Acov
 
+        if rescale:  # inverse rescaling
+            for t in range(Nt):
+                Amat[t,] = Yscl / Xscl * Amat[t,]
+                if Acov is not None:
+                    Acov[t,] = (Yscl / Xscl)**2 * Acov[t,]
+                Cvec[t,] = Yscl * Cvec[t,]
+                Ccov[t,] = Yscl**2 * Ccov[t,]
+
         # if rescale:  # inverse rescaling
+        #     # print(len(Amat), Nt)
         #     for t in range(Nt):
-        #         Amat[t,] = Yscl @ Amat[t,]
-        #         # if Acov is not None:
-        #         #     Acov[t,] = Yscl @ Acov[t,] @ Yscl.T
-        #         Cvec[t,] = Yscl @ Cvec[t,]
+        #         Amat[t,] = Yscl @ Amat[t,] @ Xscl_inv
+        #         if Acov is not None:
+        #             # Tmat0 = []
+        #             # for i in range(Yvar.shape[0]):
+        #             #     for j in range(Xvar.shape[0]):
+        #             #         Tmat0.append(np.kron(Yscl[i,:], Xscl[:,j]))
+        #             # Tmat = np.asarray(Tmat0)
+        #             # Tmat0 = np.atleast_2d(Yscl.flatten('C')).T @ np.atleast_2d(Xscl.flatten('F'))
+        #             # Tmat = Tmat0.reshape((Yscl.shape[0],-1), order='C')
+        #             Tmat = np.kron(Yscl, Xscl_inv.T)
+        #             Acov[t,] = Tmat @ Acov[t,] @ Tmat.T
+        #         Cvec[t,] = Yscl @ Cvec[t,] # + Ym - Amat[t,] @ Xm
         #         Ccov[t,] = Yscl @ Ccov[t,] @ Yscl.T
 
         return ((Amat, Acov), (Cvec, Ccov), Err, Sig), ((Amatc, Acovc), U, S)
