@@ -597,51 +597,51 @@ def _load_static_data(Data0):
     return Data, Tall, Eall, Locations
 
 
-# def concat_mts_rm_index(Data, fd):
-#     """
-#     Args:
-#         fd (str): for example, 'Temperature'
-#     """
-#     X0 = concat_mts(Data, fd)
-#     # remove the name 'index' in the index column
-#     return pd.DataFrame(data=np.asarray(X0), columns=X0.columns, index=list(X0.index))
-
-
-def load_static_data_mdb(fname):
-    """Load preprocessed static data from a given file.
+def concat_mts_rm_index(Data, fd):
     """
-
-    Data0 = load_json(fname)
-
-    Locations = list(Data0.keys())
-    Locations.sort()
-
-    # Extract data of temperature and elongation
-    Data = {}
-    for loc, X0 in Data0.items():
-        X = X0.copy()
-
-        # index of interpolated values
-        Rblx = np.asarray(list(map(lambda x:np.mod(x>>0, 2), X['Type'])), dtype=bool)
-        # index of missing data
-        Nblx = np.asarray(list(map(lambda x:np.mod(x>>1, 2), X['Type'])), dtype=bool)
-        # index of jumps
-        Jblx = np.asarray(list(map(lambda x:np.mod(x>>2, 2), X['Type'])), dtype=bool)
-        Jblx = np.logical_and(Jblx, np.logical_not(Nblx))  # remove the artificial jumps of missing data
-
-        X[Nblx] = np.nan
-        X['Missing'] = Nblx
-        X['Jump'] = Jblx
-
-        Data[loc] = X[Rblx].copy()# [['Temperature', 'Elongation', 'Missing', 'Jump']]
-        del Data[loc]['Type']
-
-    Tall = concat_mts_rm_index(Data, 'Temperature')
-    Eall = concat_mts_rm_index(Data, 'Elongation')
-    Rall = concat_mts_rm_index(Data, 'Reference')
+    Args:
+        fd (str): for example, 'Temperature'
+    """
+    X0 = concat_mts(Data, fd)
+    # remove the name 'index' in the index column
+    return pd.DataFrame(data=np.asarray(X0), columns=X0.columns, index=list(X0.index))
 
 
-    return Data, Tall, Eall, Rall, Pall, Locations
+# def load_static_data_mdb(fname):
+#     """Load preprocessed static data from a given file.
+#     """
+
+#     Data0 = load_json(fname)
+
+#     Locations = list(Data0.keys())
+#     Locations.sort()
+
+#     # Extract data of temperature and elongation
+#     Data = {}
+#     for loc, X0 in Data0.items():
+#         X = X0.copy()
+
+#         # index of interpolated values
+#         Rblx = np.asarray(list(map(lambda x:np.mod(x>>0, 2), X['Type'])), dtype=bool)
+#         # index of missing data
+#         Nblx = np.asarray(list(map(lambda x:np.mod(x>>1, 2), X['Type'])), dtype=bool)
+#         # index of jumps
+#         Jblx = np.asarray(list(map(lambda x:np.mod(x>>2, 2), X['Type'])), dtype=bool)
+#         Jblx = np.logical_and(Jblx, np.logical_not(Nblx))  # remove the artificial jumps of missing data
+
+#         X[Nblx] = np.nan
+#         X['Missing'] = Nblx
+#         X['Jump'] = Jblx
+
+#         Data[loc] = X[Rblx].copy()# [['Temperature', 'Elongation', 'Missing', 'Jump']]
+#         del Data[loc]['Type']
+
+#     Tall = concat_mts_rm_index(Data, 'Temperature')
+#     Eall = concat_mts_rm_index(Data, 'Elongation')
+#     Rall = concat_mts_rm_index(Data, 'Reference')
+
+
+#     return Data, Tall, Eall, Rall, Locations
 
 
 def concat_mts(Data, field):

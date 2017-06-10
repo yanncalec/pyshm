@@ -14,7 +14,7 @@ from sklearn.cluster import KMeans #, AffinityPropagation
 import pywt
 
 import matplotlib
-matplotlib.use("macosx")
+# matplotlib.use("macosx")
 import matplotlib.pyplot as plt
 # import matplotlib.colors as colors
 import mpld3

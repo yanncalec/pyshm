@@ -320,14 +320,14 @@ def ssproj(X0, cdim=1, vthresh=None, corrflag=False, sidx=0, Ntrn=None, dflag=Fa
     return Xprj, (U,S), cdim
 
 
-def mutdecorr(Y0, lag, vthresh=1e-3): #, sidx=0, Ntrn=None):
-    """Dimension-wise mutual decorrelation."""
-    Yprd = []
-    for n in range(Y0.shape[0]):
-        locs = list(range(Y0.shape[0]))  # list of row index
-        locs.pop(n)  # exclude the current row
-        # Regression of the current row by the other rows
-        toto, *_ = Models.deconv(Y0[[n],:], Y0[locs,:], lag, dord=1, pord=1, clen2=None, dspl=1, vthresh=vthresh)
-        Yprd.append(toto[0])  # toto is 1-by-? 2d array
-    return np.asarray(Yprd)
+# def mutdecorr(Y0, lag, vthresh=1e-3): #, sidx=0, Ntrn=None):
+#     """Dimension-wise mutual decorrelation."""
+#     Yprd = []
+#     for n in range(Y0.shape[0]):
+#         locs = list(range(Y0.shape[0]))  # list of row index
+#         locs.pop(n)  # exclude the current row
+#         # Regression of the current row by the other rows
+#         toto, *_ = deconv(Y0[[n],:], Y0[locs,:], lag, dord=1, pord=1, clen2=None, dspl=1, vthresh=vthresh)
+#         Yprd.append(toto[0])  # toto is 1-by-? 2d array
+#     return np.asarray(Yprd)
 
