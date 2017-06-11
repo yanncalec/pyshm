@@ -20,6 +20,23 @@ import matplotlib.pyplot as plt
 import mpld3
 plt.style.use('ggplot')
 
+
+class MyEncoder(json.JSONEncoder):
+    """Utility class for convert from numpy types to json.
+
+    """
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        # elif isinstance(obj, np.bool_):
+        #     return bool(obj)
+        else:
+            return super(MyEncoder, self).default(obj)
+
 import pyshm
 # from pyshm import OSMOS, Tools, Stat, Models
 # from pyshm.script import static_data_analysis_template, examplestyle, warningstyle, load_result_of_analysis
@@ -111,15 +128,15 @@ __script__ = __doc__
 # __example__ = "Some examples of use (change the path seperator '/' to '\\' on Windows platform):" + "".join(examples)
 
 # ls_examples = []
-# ls_examples.append(["%(prog)s DBDIR/153 OUTDIR/153 --alocs 754 --component trend --time0 2016-03-01 --time1 2016-08-01 -vv", "On the location 754 of the project of PID 153 (preprocessed data), apply the least-square model on the trend component for the period from 2016-03-01 to 2016-08-01 and save the results in the directory named OUTDIR/153. Print supplementary messages."])
-# ls_examples.append(["%(prog)s DBDIR/153 OUTDIR/153 --alocs 754,755 -v", "Process the locations 754 and 755, for each of them use the temperature of both to explain the elongation data (vectorial model)."])
-# ls_examples.append(["%(prog)s DBDIR/153 OUTDIR/153 -v", "Process all sensors, for each of them use the temperature of all to explain the elongation data."])
-# ls_examples.append(["%(prog)s DBDIR/153 OUTDIR/153 --time0 2016-03-01 --Ntrn 1000 -v", "Change the length of the training period to 1000 hours starting from the begining of the truncated data set which is 2016-03-01."])
-# ls_examples.append(["%(prog)s DBDIR/153 OUTDIR/153 --component=seasonal -v", "Process the seasonal component of data."])
+# ls_examples.append(["%(prog)s 153 DBDIR --alocs 754 --component trend --time0 2016-03-01 --time1 2016-08-01 -vv", "On the location 754 of the project of PID 153 (preprocessed data), apply the least-square model on the trend component for the period from 2016-03-01 to 2016-08-01 and save the results in the directory named OUTDIR/153. Print supplementary messages."])
+# ls_examples.append(["%(prog)s 153 DBDIR --alocs 754,755 -v", "Process the locations 754 and 755, for each of them use the temperature of both to explain the elongation data (vectorial model)."])
+# ls_examples.append(["%(prog)s 153 DBDIR -v", "Process all sensors, for each of them use the temperature of all to explain the elongation data."])
+# ls_examples.append(["%(prog)s 153 DBDIR --time0 2016-03-01 --Ntrn 1000 -v", "Change the length of the training period to 1000 hours starting from the begining of the truncated data set which is 2016-03-01."])
+# ls_examples.append(["%(prog)s 153 DBDIR --component=seasonal -v", "Process the seasonal component of data."])
 # __ls_example__ = "Some examples of use (change the path seperator '/' to '\\' on Windows platform):" + "".join([examplestyle(x) for x in ls_examples])
 
 # bm_examples = []
-# bm_examples.append(["%(prog)s DBDIR/153 OUTDIR/153 -v", "Use the BM model to process all sensors."])
+# bm_examples.append(["%(prog)s 153 DBDIR -v", "Use the BM model to process all sensors."])
 # __bm_example__ = "Some examples of use (change the path seperator '/' to '\\' on Windows platform):" + "".join([examplestyle(x) for x in bm_examples])
 
 def main():
@@ -130,7 +147,8 @@ def main():
                                     #  epilog="\n\n" + __example__)
                                     #  epilog=__warning__ + "\n\n" + __example__)
 
-    subparsers = mainparser.add_subparsers(title="subcommands", description="Perform deconvolution or statistical analysis", dest="subcommand")
+    subparsers = mainparser.add_subparsers(title="subcommands", # description="Perform deconvolution",
+    dest="subcommand")
     parser_ls = subparsers.add_parser("ls", help="Deconvolution using the least-square model",
                                         formatter_class=argparse.RawDescriptionHelpFormatter,)
                                         # epilog=__ls_example__)
@@ -148,13 +166,14 @@ def main():
         parser.add_argument("pid", type=int, help="project key ID.")
         parser.add_argument("dbdir", type=str, help="directory of local database and outputs.")
         parser.add_argument("-v", "--verbose", dest="verbose", action="count", default=0, help="print messages.")
+        parser.add_argument("--excel", dest="excel", action="store_true", default=False, help="save results in excel format.")
 
         # parser.add_argument("--raw", dest="raw", action="store_true", default=False, help="use non-transformed raw data (default: use transformed data).")
 
         mongo_opts = parser.add_argument_group("MongoDB options")
-        mongo_opts.add_argument("--hostname", dest="hostname", type=str, default="localhost", help="name of the MongoDB server (default=localhost).", metavar="string")
-        mongo_opts.add_argument("--port", dest="port", type=int, default=27017, help="port of the MongoDB server(default=27017).", metavar="integer")
-        mongo_opts.add_argument("--update", dest="update", action="store_true", default=False, help="force updating local database from the MongoDB server.")
+        mongo_opts.add_argument("--hostname", dest="hostname", type=str, default="localhost", help="name of the MongoDB server (default=localhost or '127.0.0.1').", metavar="string")
+        mongo_opts.add_argument("--port", dest="port", type=int, default=27017, help="port of the MongoDB server (default=27017).", metavar="integer")
+        mongo_opts.add_argument("--update", dest="update", action="store_true", default=False, help="force updating local database.")
         mongo_opts.add_argument("--plot", dest="plot", action="store_true", default=False, help="plot data.")
 
         # sensor_opts = parser.add_argument_group("Sensor options")
@@ -173,11 +192,11 @@ def main():
         tdata_opts.add_argument("--Ntrn", dest="Ntrn", type=int, default=6*30*24, help="length of the training data (default=24*30*6).", metavar="integer")
 
         model_opts = parser.add_argument_group("Model options")
-        model_opts.add_argument("--lag", dest="lag", type=int, default=6, help="length of the convolution kernel (default=6)", metavar="integer")
+        model_opts.add_argument("--lag", dest="lag", type=int, default=24, help="length of the convolution kernel (default=24)", metavar="integer")
         model_opts.add_argument("--pord", dest="pord", type=int, default=None, help="order of non-thermal polynomial process (default=1 for trend or all component, 0 for raw or seasonal component).", metavar="integer")
         model_opts.add_argument("--dord", dest="dord", type=int, default=None, help="order of derivative (default=1 for trend or all component, 0 for raw or seasonal component).", metavar="integer")
         model_opts.add_argument("--pflag", dest="pflag", action="store_true", default=False, help="add polynomial trends in the prediction (default=no polynomial trend).")
-        model_opts.add_argument("--vthresh", dest="vthresh", type=float, default=0.01, help="percentage of tolerable information loss for dimension reduction. The principle dimensions corresponding to the percentage of (1-vthresh) will be kept, i.e. 1 percent of information is discarded if vthresh=0.01. No dimension reduction if set to 0 (default=0.01). This parameter has some effect of regularization.", metavar="float")
+        model_opts.add_argument("--vthresh", dest="vthresh", type=float, default=10**-3, help="percentage of tolerable information loss for dimension reduction. The principle dimensions corresponding to the percentage of (1-vthresh) will be kept, i.e. 1 percent of information is discarded if vthresh=0.01. No dimension reduction if set to 0 (default=0.001).", metavar="float")
         # dimr_opts.add_argument("--corrflag", dest="corrflag", action="store_true", default=False, help="use correlation matrix in dimension reduction.")
 
         cluster_opts = parser.add_argument_group("Clustering and low rank approximation options")
@@ -203,37 +222,39 @@ def main():
     regressor_opts.add_argument("--snr2", dest="snr2", type=float, default=10**4, help="squared signal-to-noise ratio of the Gaussian polynomial process (default=1e4), no effect if clen2 is not set.", metavar="float")
     regressor_opts.add_argument("--clen2", dest="clen2", type=float, default=None, help="squared correlation length of the Gaussian polynomial process (default=None, use deterministic polynomial process).", metavar="float")
     regressor_opts.add_argument("--dspl", dest="dspl", type=int, default=1, help="down-sampling rate of training data for acceleration on large training dataset (default=1, no down-sampling).", metavar="integer")
+    regressor_opts.add_argument("--nvrng", dest="nvrng", type=int, default=100, help="use multiple values around the given vthresh for regularization (default=100).", metavar="integer")
     regressor_opts.add_argument("--vreg", dest="vreg", type=float, default=0, help="factor of regularization (default=0).", metavar="float")
 
     kalman_opts = parser_bm.add_argument_group("Kalman filter options (bm model only)")
     kalman_opts.add_argument("--sigmaq2", dest="sigmaq2", type=float, default=10**-6, help="variance of transition noise (default=1e-6).", metavar="float")
-    kalman_opts.add_argument("--sigmar2", dest="sigmar2", type=float, default=10**2, help="variance of observation noise (default=1e+2).", metavar="float")
+    kalman_opts.add_argument("--sigmar2", dest="sigmar2", type=float, default=1e+2, help="variance of observation noise (default=1e+2).", metavar="float")
     kalman_opts.add_argument("--kalman", dest="kalman", type=str, default="smoother", help="method of estimation of Kalman filter: filter, smoother (default).", metavar="string")
     kalman_opts.add_argument("--rescale", dest="rescale", action="store_true", default=False, help="rescale the input and output variables to normalize the amplitude.")
 
     options = mainparser.parse_args()
+    options.excel = True  # force excel format
 
     # set pord and dord automatically according to the component's type
     if options.component.upper() == 'RAW':
-        if options.verbose:
-            print("Recommended value for the component {}:".format(options.component.upper()))
-            print("\tpord=0, dord=0, pflag=True")
+        # if options.verbose:
+        #     print("Recommended value for the component {}:".format(options.component.upper()))
+        #     print("\tpord=0, dord=0, pflag=True")
         if options.pord is None:
             options.pord = 0
         if options.dord is None:
             options.dord = 0
     elif options.component.upper() in ['ALL', 'TREND']:
-        if options.verbose:
-            print("Recommended value for the component {}:".format(options.component.upper()))
-            print("\tpord=1, dord=0, pflag=False")
+        # if options.verbose:
+        #     print("Recommended value for the component {}:".format(options.component.upper()))
+        #     print("\tpord=1, dord=0, pflag=False")
         if options.pord is None:
             options.pord = 1
         if options.dord is None:
             options.dord = 0
     else:
-        if options.verbose:
-            print("Recommended value for the component {}:".format(options.component.upper()))
-            print("\tpord=0, dord=0, pflag=False")
+        # if options.verbose:
+        #     print("Recommended value for the component {}:".format(options.component.upper()))
+        #     print("\tpord=0, dord=0, pflag=False")
         if options.pord is None:
             options.pord = 0
         if options.dord is None:
@@ -262,11 +283,14 @@ def main():
     options.infile_info = os.path.join(options.dbdir, "LIRIS_info.xlsx")  # input LIRIS information file of the project
 
     options.func_name = __file__[__file__.rfind(os.path.sep)+1 : __file__.rfind('.')]
+    outdir0 = os.path.join(options.projdir, options.func_name, "model[{}]_component[{}]_alocs[{}]_[from_{}_to_{}]_Ntrn[{}]_lag[{}]_pord[{}]_dord[{}]_pflag[{}]_vthresh[{:.1e}]".format(options.subcommand.upper(), options.component.upper(), options.alocs, options.time0, options.time1, options.Ntrn, options.lag, options.pord, options.dord, options.pflag, options.vthresh))
+
     if options.subcommand.upper() == 'LS':
-        options.outdir = os.path.join(options.projdir, options.func_name, "model[{}]_component[{}]_alocs[{}]_[from_{}_to_{}]_Ntrn[{}]_lag[{}]_pord[{}]_dord[{}]_pflag[{}]_vthresh[{}]_clen2[{}]_snr2[{:.1e}]_dspl[{}]_Nexp[{}]_vreg[{}]".format(options.subcommand.upper(), options.component.upper(), options.alocs, options.time0, options.time1, options.Ntrn, options.lag, options.pord, options.dord, options.pflag, options.vthresh, options.clen2, options.snr2, options.dspl, options.Nexp, options.vreg))  # output directory
-        # options.outdir = os.path.join(options.projdir, options.func_name, "model[{}]_component[{}]_alocs[{}]_[from_{}_to_{}]_Ntrn[{}]_lag[{}]_pord[{}]_dord[{}]_pflag[{}]_vthresh[{}]_clen2[{}]_snr2[{:.1e}]_dspl[{}]_Nexp[{}]_vreg[{:.1e}]".format(options.subcommand.upper(), options.component.upper(), options.alocs, options.time0, options.time1, options.Ntrn, options.lag, options.pord, options.dord, options.pflag, options.vthresh, options.clen2, options.snr2, options.dspl, options.Nexp, options.vreg))  # output directory
+        options.outdir = outdir0 + "_clen2[{}]_snr2[{:.1e}]_dspl[{}]_Nexp[{}]_vreg[{}]".format(options.clen2, options.snr2, options.dspl, options.Nexp, options.vreg)  # output directory
     else:
-        options.outdir = os.path.join(options.projdir, options.func_name, "model[{}]_component[{}]_alocs[{}]_[from_{}_to_{}]_Ntrn[{}]_lag[{}]_pord[{}]_dord[{}]_pflag[{}]_vthresh[{}]_sigmaq2[{:.1e}]_sigmar2[{:.1e}]_rescale[{}]".format(options.subcommand.upper(), options.component.upper(), options.alocs, options.time0, options.time1, options.Ntrn, options.lag, options.pord, options.dord, options.pflag, options.vthresh, options.sigmaq2, options.sigmar2, options.rescale))
+        options.outdir = outdir0 + "_sigmaq2[{:.1e}]_sigmar2[{:.1e}]_rescale[{}]".format(options.sigmaq2, options.sigmar2, options.rescale)
+
+        # os.path.join(options.projdir, options.func_name, "model[{}]_component[{}]_alocs[{}]_[from_{}_to_{}]_Ntrn[{}]_lag[{}]_pord[{}]_dord[{}]_pflag[{}]_vthresh[{}]_sigmaq2[{:.1e}]_sigmar2[{:.1e}]_rescale[{}]".format(options.subcommand.upper(), options.component.upper(), options.alocs, options.time0, options.time1, options.Ntrn, options.lag, options.pord, options.dord, options.pflag, options.vthresh, options.sigmaq2, options.sigmar2, options.rescale))
 
     if os.path.isfile(options.infile_data) and os.path.isfile(options.infile_info) and not options.update:  # if both files exist, use local database
         if options.verbose:
@@ -324,6 +348,7 @@ def main():
                     # print(data.head())
                     data.to_excel(writer, str(loc))
                 writer.save()
+
                 if options.verbose:
                     print("Data saved in {}".format(options.infile_data))
             else:
@@ -428,8 +453,24 @@ def main():
             print("\tTraining period: from {} to {}, about {} days.".format(Time_idx[options.trnperiod[0]], Time_idx[options.trnperiod[1]-1], int((options.trnperiod[1]-options.trnperiod[0])/24)))
 
     if options.subcommand.upper() == "LS":
-        Yprd, Amat, Amatc = pyshm.Models.deconv(Yvar, Xvar, options.lag, dord=options.dord,
-        pord=options.pord, snr2=options.snr2, clen2=options.clen2, dspl=options.dspl, sidx=options.sidx, Ntrn=options.Ntrn, vthresh=options.vthresh, Nexp=options.Nexp, pflag=options.pflag)
+        # run deconvolution for a range of values around vthresh and take the average
+        vthresh_min = options.vthresh / 100
+        vthresh_max = max(0.01, options.vthresh * 100)
+        vthresh_list = 10**(np.linspace(np.log10(vthresh_min), np.log10(vthresh_max), 100))
+
+        yprd_list = []
+        amat_list = []
+        # amatc_list = []
+
+        for vthresh in vthresh_list:
+            yprd0, amat0, amatc0 = pyshm.Models.deconv(Yvar, Xvar, options.lag, dord=options.dord, pord=options.pord, snr2=options.snr2, clen2=options.clen2, dspl=options.dspl, sidx=options.sidx, Ntrn=options.Ntrn, vthresh=vthresh, Nexp=options.Nexp, pflag=options.pflag)
+            yprd_list.append(yprd0)
+            amat_list.append(amat0)
+            # Amatc0.append(amatc)
+        Yprd = np.asarray(yprd_list).mean(axis=0)
+        Amat = np.asarray(amat_list).mean(axis=0)
+        # Amatc = np.asarray(amatc_list).mean(axis=0)
+
     elif options.subcommand.upper() == "BM":
         smoothflag = options.kalman.upper() == "SMOOTHER"
         # # full-vectorial version: time and space consuming
@@ -442,24 +483,42 @@ def main():
         Yprd0 = []  # final prediction from external inputs
         Amat0 = []  # convolution matrices, or the thermal law
         Acov0 = []  # covariance matrix of Amat
-        Amatc0 = []  # reduced convolution matrices, or the thermal law
-        Acovc0 = []  # covariance matrix of Amatc
+        # Amatc0 = []  # reduced convolution matrices, or the thermal law
+        # Acovc0 = []  # covariance matrix of Amatc
+
+        # vthresh_min = options.vthresh / 100
+        # vthresh_min = max(0.01, options.vthresh * 100)
+        # vthresh_list = 10**(np.linspace(np.log10(vthresh_min), np.log10(vthresh_max), 100))
+        vthresh_list = [options.vthresh]
+
         for n, aloc in enumerate(options.alocs):
             if options.verbose:
                 print("\tProcessing the location {}...".format(aloc))
-            yprd, (amat,acov), (amatc,acovc) = pyshm.Models.deconv_bm(Yvar[[n],:], Xvar, options.lag, dord=options.dord, pord=options.pord, sigmaq2=options.sigmaq2, sigmar2=options.sigmar2, x0=0., p0=1., smooth=smoothflag, sidx=options.sidx, Ntrn=options.Ntrn, vthresh=options.vthresh, rescale=options.rescale)
+            yprd_list = []
+            amat_list = []
+            acov_list = []
+            for vthresh in vthresh_list:
+                yprd0, (amat0,acov0), (amatc0,acovc0) = pyshm.Models.deconv_bm(Yvar[[n],:], Xvar, options.lag, dord=options.dord, pord=options.pord, sigmaq2=options.sigmaq2, sigmar2=options.sigmar2, x0=0., p0=1., smooth=smoothflag, sidx=options.sidx, Ntrn=options.Ntrn, vthresh=vthresh, rescale=options.rescale)
+                yprd_list.append(yprd0)
+                amat_list.append(amat0)
+                acov_list.append(acov0)
+
+            yprd = np.asarray(yprd_list).mean(axis=0)
+            amat = np.asarray(amat_list).mean(axis=0)
+            acov = np.asarray(acov_list).mean(axis=0)
             # print(yprd.shape, ycov.shape, amat.shape, acov.shape)
             Yprd0.append(yprd)
-            Amat0.append(np.squeeze(amat))
+            Amat0.append(amat)
             Acov0.append(np.asarray([np.diag(a) for a in acov]))
-            Amatc0.append(np.squeeze(amatc))
-            Acovc0.append(np.asarray([np.diag(a) for a in acovc]))
-        Yprd = np.squeeze(np.asarray(Yprd0))  # shape of Yprd: len(alocs)*Nt
-        Amat = np.asarray(Amat0).transpose((1,0,2))  # shape of Amat: Nt*len(alocs)*(len(alocs)*lag)
-        Acov = np.asarray(Acov0).transpose((1,0,2))  # shape of Acov: Nt*len(alocs)*(len(alocs)*lag)
-        Amatc = np.asarray(Amatc0).transpose((1,0,2))  # shape of Amatc: Nt*len(alocs)*(len(alocs)*lag)
-        Acovc = np.asarray(Acovc0).transpose((1,0,2))  # shape of Acovc: Nt*len(alocs)*(len(alocs)*lag)
-        # print(Yprd.shape, Amat.shape, Acov.shape, Amatc.shape, Acovc.shape)
+            # Amatc0.append(amatc)
+            # Acovc0.append(np.asarray([np.diag(a) for a in acovc]))
+        Yprd = np.squeeze(np.asarray(Yprd0))  # shape : len(alocs) x Nt
+        Amat = np.asarray(Amat0)  # 4d, shape : len(alocs) x Nt x 1 x (lag*len(alocs)+1)
+        Acov = np.asarray(Acov0)  # 3d, shape : len(alocs) x Nt x (len(alocs)*lag+1)
+        # Amatc = np.asarray(Amatc0)  # 4d, shape : len(alocs) x Nt x ? x ?
+        # Acovc = np.asarray(Acovc0)  # 3d, shape : len(alocs) x Nt x ?
+        # print(Amat.shape, Acov.shape, Amatc.shape, Acovc.shape)
+
     else:
         raise NotImplementedError()
 
@@ -647,43 +706,88 @@ def main():
     except Exception:
         pass
 
-    options.outfile_results = os.path.join(options.outdir, "results.xlsx")
-    writer = pd.ExcelWriter(options.outfile_results)
+    if options.excel:
+        options.outfile_results = os.path.join(options.outdir, "results.xlsx")
+        writer = pd.ExcelWriter(options.outfile_results)
 
-    Tcpn_tfm.to_excel(writer, sheet_name="Temperature")
-    Ecpn_tfm.to_excel(writer, sheet_name="Elongation")
-    Eprd_tfm.to_excel(writer, sheet_name="Prediction")
-    if options.subcommand.upper() == 'LS':
-        Amat_pd = pd.DataFrame(Amat.T, columns=options.alocs)
-        Amat_pd.to_excel(writer, sheet_name="Flattened kernel")
-        Amatc_pd = pd.DataFrame(Amatc.T, columns=options.alocs)
-        Amatc_pd.to_excel(writer, sheet_name="Flattened reduced kernel")
-    elif options.subcommand.upper() == 'BM':
-        Amat_mean = np.mean(Amat, axis=-1)
-        Amat_pd = pd.DataFrame(Amat_mean, columns=options.alocs, index=Time_idx)
-        Amat_pd.to_excel(writer, sheet_name="Mean kernel")
-        Acov_mean = np.mean(Acov, axis=-1)
-        Acov_pd = pd.DataFrame(Acov_mean, columns=options.alocs, index=Time_idx)
-        Acov_pd.to_excel(writer, sheet_name="Mean var. of kernel")
-        Amatc_mean = np.mean(Amatc, axis=-1)
-        Amatc_pd = pd.DataFrame(Amatc_mean, columns=options.alocs, index=Time_idx)
-        Amatc_pd.to_excel(writer, sheet_name="Mean reduced kernel")
-        Acovc_mean = np.mean(Acovc, axis=-1)
-        Acovc_pd = pd.DataFrame(Acovc_mean, columns=options.alocs, index=Time_idx)
-        Acovc_pd.to_excel(writer, sheet_name="Mean var. of reduced kernel")
+        Tcpn_tfm.to_excel(writer, sheet_name="Temperature")
+        Ecpn_tfm.to_excel(writer, sheet_name="Elongation")
+        Eprd_tfm.to_excel(writer, sheet_name="Prediction")
 
-    if Virt is not None:
-        Virt.to_excel(writer, sheet_name="Virtual sensors")
-        Eerr_prj.to_excel(writer, sheet_name="Subspace projection")
-    if Scof_pd is not None:
-        Scof_pd.to_excel(writer, sheet_name="PCA coefficients")
-    if Atran is not None:
-        Atran.to_excel(writer, sheet_name="Transient")
-    if Astd is not None:
-        Astd.to_excel(writer, sheet_name="Std")
-    if Apers is not None:
-        Apers.to_excel(writer, sheet_name="Persistence")
-    writer.save()
+        # if options.subcommand.upper() == 'LS':
+        #     Amat_pd = pd.DataFrame(Amat.T, columns=options.alocs)
+        #     Amat_pd.to_excel(writer, sheet_name="Flattened kernel")
+        #     Amatc_pd = pd.DataFrame(Amatc.T, columns=options.alocs)
+        #     Amatc_pd.to_excel(writer, sheet_name="Flattened reduced kernel")
+        # elif options.subcommand.upper() == 'BM':
+        #     Amat_mean = np.mean(Amat, axis=-1)
+        #     Amat_pd = pd.DataFrame(Amat_mean, columns=options.alocs, index=Time_idx)
+        #     Amat_pd.to_excel(writer, sheet_name="Mean kernel")
+        #     Acov_mean = np.mean(Acov, axis=-1)
+        #     Acov_pd = pd.DataFrame(Acov_mean, columns=options.alocs, index=Time_idx)
+        #     Acov_pd.to_excel(writer, sheet_name="Mean var. of kernel")
+        #     Amatc_mean = np.mean(Amatc, axis=-1)
+        #     Amatc_pd = pd.DataFrame(Amatc_mean, columns=options.alocs, index=Time_idx)
+        #     Amatc_pd.to_excel(writer, sheet_name="Mean reduced kernel")
+        #     Acovc_mean = np.mean(Acovc, axis=-1)
+        #     Acovc_pd = pd.DataFrame(Acovc_mean, columns=options.alocs, index=Time_idx)
+        #     Acovc_pd.to_excel(writer, sheet_name="Mean var. of reduced kernel")
+
+        if Virt is not None:
+            Virt.to_excel(writer, sheet_name="Virtual sensors")
+            Eerr_prj.to_excel(writer, sheet_name="Subspace projection")
+        if Scof_pd is not None:
+            Scof_pd.to_excel(writer, sheet_name="PCA coefficients")
+        if Atran is not None:
+            Atran.to_excel(writer, sheet_name="Transient")
+        if Astd is not None:
+            Astd.to_excel(writer, sheet_name="Std")
+        if Apers is not None:
+            Apers.to_excel(writer, sheet_name="Persistence")
+        writer.save()
+    else:
+        Resdic = {"Temperature":Tcpn_tfm,
+                "Elongation":Ecpn_tfm,
+                "Prediction":Eprd_tfm
+                }
+        # if options.subcommand.upper() == 'LS':
+        #     toto = pd.DataFrame(Amat.T, columns=options.alocs)
+        #     Resdic["Flattened kernel"] = toto
+        #     toto = pd.DataFrame(Amatc.T, columns=options.alocs)
+        #     Resdic["Flattened reduced kernel"] = toto
+        # elif options.subcommand.upper() == 'BM':
+        #     # Resdic["Mean kernel"] = pd.DataFrame(Amat.T, columns=options.alocs)
+        #     # Resdic["Mean var. of kernel"] = pd.DataFrame(Amatc.T, columns=options.alocs)
+
+        #     # Amat_mean = np.mean(Amat, axis=-1)
+        #     # Amat_pd = pd.DataFrame(Amat_mean, columns=options.alocs, index=Time_idx)
+        #     # Amat_pd.to_excel(writer, sheet_name="Mean kernel")
+        #     # Acov_mean = np.mean(Acov, axis=-1)
+        #     # Acov_pd = pd.DataFrame(Acov_mean, columns=options.alocs, index=Time_idx)
+        #     # Acov_pd.to_excel(writer, sheet_name="Mean var. of kernel")
+        #     # Amatc_mean = np.mean(Amatc, axis=-1)
+        #     # Amatc_pd = pd.DataFrame(Amatc_mean, columns=options.alocs, index=Time_idx)
+        #     # Amatc_pd.to_excel(writer, sheet_name="Mean reduced kernel")
+        #     # Acovc_mean = np.mean(Acovc, axis=-1)
+        #     # Acovc_pd = pd.DataFrame(Acovc_mean, columns=options.alocs, index=Time_idx)
+        #     # Acovc_pd.to_excel(writer, sheet_name="Mean var. of reduced kernel")
+        #     pass
+        if Virt is not None:
+            Resdic["Virtual sensors"] = Virt
+            Resdic["Subspace projection"] = Eerr_prj
+        if Scof_pd is not None:
+            Resdic["PCA coefficients"] = Scof_pd
+        if Atran is not None:
+            Resdic["Transient"] = Atran
+        if Astd is not None:
+            Resdic["Std"] = Astd
+        if Apers is not None:
+            Resdic["Persistence"] = Apers
+
+        resjson = to_json(Resdic, verbose=options.verbose)
+        options.outfile_results = os.path.join(options.outdir, "results.json")
+        with open(options.outfile_results, 'w') as fp:
+            json.dump(resjson, fp, cls=MyEncoder)
 
     ### 6.2 The following variables will be saved in a json file ###
     # cluster_locs : clustering of sensors
@@ -699,11 +803,11 @@ def main():
     with open(options.outfile_alarms, 'w') as fp:
         # json.dump(resjson, fp, cls=MyEncoder)
         # json.dump(alarms, fp, cls=MyEncoder)
-        json.dump(alarms_dic, fp)
+        json.dump(alarms_dic, fp, cls=MyEncoder)
 
     options.outfile_options = os.path.join(options.outdir, 'options.json')
     with open(options.outfile_options, 'w') as fp:
-        json.dump(vars(options), fp)
+        json.dump(vars(options), fp, cls=MyEncoder)
 
     if options.verbose:
         print("Results saved in\n{}".format(options.outfile_results))

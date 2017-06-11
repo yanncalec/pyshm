@@ -455,10 +455,11 @@ def dim_reduction_cca(func):
                 # 2. by cumulation of sv
                 toto = np.cumsum(S) / np.sum(S)
                 cdim = np.sum(toto <= 1-vthresh)
-            else:  # if cdim is given, vthresh has no effect
-                pass
-            assert cdim>0  # check cdim
+            # else:  # if cdim is given, vthresh has no effect
+            #     pass
+            # assert cdim>0  # check cdim
             # raise ValueError("dim_reduction: output dimension is zero, relax the threshold.")
+            cdim = max(1, cdim) # force the minimal dimension
 
             # Xcof = V.T @ (X0 - mean(X0)[:, np.newaxis])
             # Ycof = U.T @ (Y0 - mean(Y0)[:, np.newaxis])
@@ -512,10 +513,11 @@ def dim_reduction_pca(func):
                 # 2. by cumulation of sv
                 toto = np.cumsum(S) / np.sum(S)
                 cdim = np.sum(toto <= 1-vthresh)
-            else:  # if cdim is given, vthresh has no effect
-                pass
-            assert cdim>0  # check cdim
+            # else:  # if cdim is given, vthresh has no effect
+            #     pass
+            # assert cdim>0  # check cdim
             # raise ValueError("dim_reduction: output dimension is zero, relax the threshold.")
+            cdim = max(1, cdim) # force the minimal dimension
 
             # Xcof = V.T @ (X0 - mean(X0)[:, np.newaxis])
             Xcof = V.T @ X0
@@ -598,10 +600,11 @@ def dim_reduction_bm(func):
                 # 2. by cumulation of sv
                 toto = np.cumsum(S) / np.sum(S)
                 cdim = np.sum(toto <= 1-vthresh)
-            else:  # if cdim is given, vthresh has no effect
-                pass
-            assert cdim>0  # check cdim
+            # else:  # if cdim is given, vthresh has no effect
+            #     pass
+            # assert cdim>0  # check cdim
             # raise ValueError("dim_reduction: output dimension is zero, relax the threshold.")
+            cdim = max(1, cdim) # force the minimal dimension
 
             # # by cca:
             # _, (U, S, _), Ryx = cca(Yvar[:,tidx0:tidx1], Xvar[:,tidx0:tidx1], W=None)
