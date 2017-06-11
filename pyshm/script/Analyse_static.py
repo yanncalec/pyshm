@@ -454,9 +454,13 @@ def main():
 
     if options.subcommand.upper() == "LS":
         # run deconvolution for a range of values around vthresh and take the average
-        vthresh_min = options.vthresh / 100
-        vthresh_max = max(0.01, options.vthresh * 100)
-        vthresh_list = 10**(np.linspace(np.log10(vthresh_min), np.log10(vthresh_max), 100))
+        if options.vthresh > 0:
+            vthresh_min = options.vthresh / options.nvrng
+            vthresh_max = options.vthresh * options.nvrng
+            vthresh_list = 10**(np.linspace(np.log10(vthresh_min), np.log10(vthresh_max), options.nvrng))
+            vthresh_list = vthresh_list[vthresh_list<=0.01]
+        else:
+            vthresh_list = np.asarray([0])
 
         yprd_list = []
         amat_list = []
