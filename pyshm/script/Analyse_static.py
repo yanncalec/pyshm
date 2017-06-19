@@ -8,10 +8,10 @@ import json
 import numpy as np
 import scipy
 import pandas as pd
-from pymongo import MongoClient
 import warnings
 from sklearn.cluster import KMeans #, AffinityPropagation
 import pywt
+from pymongo import MongoClient
 
 import matplotlib
 # matplotlib.use("macosx")
@@ -19,6 +19,28 @@ import matplotlib.pyplot as plt
 # import matplotlib.colors as colors
 import mpld3
 plt.style.use('ggplot')
+
+
+import pyshm
+# from pyshm import OSMOS, Tools, Stat, Models
+# from pyshm.script import static_data_analysis_template, examplestyle, warningstyle, load_result_of_analysis
+# from pyshm.script import MyEncoder, to_json
+# from pyshm.script import examplestyle, warningstyle
+
+
+def split_by_day(Xvar):
+    Xlist = []
+
+    Tidx = Xvar.index
+    t0, t1 = Tidx[0], Tidx[-1]
+    Dlist = pd.date_range(start=str(t0.floor('D')), end=str(t1.ceil('D')), freq='D')
+
+    for day0, day1 in zip(Dlist[:-1], Dlist[1:]):
+        tbix = np.logical_and(Tidx>=day0, Tidx<day1)
+    #     print(Tidx[tbix])
+    #     print(toto['Temperature'][tbix])
+        Xlist.append(Xvar.iloc[tbix])
+    return Xlist
 
 
 class MyEncoder(json.JSONEncoder):
@@ -37,17 +59,6 @@ class MyEncoder(json.JSONEncoder):
         else:
             return super(MyEncoder, self).default(obj)
 
-import pyshm
-# from pyshm import OSMOS, Tools, Stat, Models
-# from pyshm.script import static_data_analysis_template, examplestyle, warningstyle, load_result_of_analysis
-# from pyshm.script import MyEncoder, to_json
-# from pyshm.script import examplestyle, warningstyle
-
-# __seperator__ = '-'*50
-
-# key2str = lambda D: {str(k):v for k,v in D.items()}
-
-# transform raw elongation to mm
 
 def compute_local_statistics(Yerr, mad, mwsize, win_type='boxcar'):
     """Compute the local statistics: mean and standard deviation and normalized
@@ -192,7 +203,7 @@ def main():
         tdata_opts.add_argument("--Ntrn", dest="Ntrn", type=int, default=6*30*24, help="length of the training data (default=24*30*6).", metavar="integer")
 
         model_opts = parser.add_argument_group("Model options")
-        model_opts.add_argument("--lag", dest="lag", type=int, default=24, help="length of the convolution kernel (default=24)", metavar="integer")
+        model_opts.add_argument("--lag", dest="lag", type=int, default=6, help="length of the convolution kernel (default=6).", metavar="integer")
         model_opts.add_argument("--pord", dest="pord", type=int, default=None, help="order of non-thermal polynomial process (default=1 for trend or all component, 0 for raw or seasonal component).", metavar="integer")
         model_opts.add_argument("--dord", dest="dord", type=int, default=None, help="order of derivative (default=1 for trend or all component, 0 for raw or seasonal component).", metavar="integer")
         model_opts.add_argument("--pflag", dest="pflag", action="store_true", default=False, help="add polynomial trends in the prediction (default=no polynomial trend).")
@@ -232,7 +243,7 @@ def main():
     kalman_opts.add_argument("--rescale", dest="rescale", action="store_true", default=False, help="rescale the input and output variables to normalize the amplitude.")
 
     options = mainparser.parse_args()
-    options.excel = True  # force excel format
+    options.excel = False  # force excel format
 
     # set pord and dord automatically according to the component's type
     if options.component.upper() == 'RAW':
@@ -262,6 +273,8 @@ def main():
 
     # print(options.pord, options.dord)
     # the following parameters are hard-coded:
+    options.dbname = 'OSMOS'  # name of database
+    options.clname = 'Liris_Measure'  # name of collection
     options.snl_threshold = 0.1  # threshold for the energy of the seasonal component
     options.thresh_tran_lowlevel = 2.  # threshold for transient alarms
     options.mwsize_tran_rng = (24, 240)  # range of size of moving window for alarms of transient events
@@ -280,7 +293,7 @@ def main():
 
     options.projdir = os.path.join(options.dbdir, str(options.pid))  # project directory
     options.infile_data = os.path.join(options.projdir, "preprocessed_static.xlsx")  # input data file of the project
-    options.infile_info = os.path.join(options.dbdir, "LIRIS_info.xlsx")  # input LIRIS information file of the project
+    options.infile_info = os.path.join(options.projdir, "liris_info.xlsx")  # input LIRIS information file of the project
 
     options.func_name = __file__[__file__.rfind(os.path.sep)+1 : __file__.rfind('.')]
     outdir0 = os.path.join(options.projdir, options.func_name, "model[{}]_component[{}]_alocs[{}]_[from_{}_to_{}]_Ntrn[{}]_lag[{}]_pord[{}]_dord[{}]_pflag[{}]_vthresh[{:.1e}]".format(options.subcommand.upper(), options.component.upper(), options.alocs, options.time0, options.time1, options.Ntrn, options.lag, options.pord, options.dord, options.pflag, options.vthresh))
@@ -310,11 +323,18 @@ def main():
                 # print(__seperator__)
                 print("Retrieving information of LIRIS sensors of the project {}...".format(options.pid))
 
-            # LIRIS_info = pyshm.OSMOS.retrieve_LIRIS_info([options.pid])
-            LIRIS_info_full = pyshm.OSMOS.retrieve_LIRIS_info(list(range(1,500)))
+            LIRIS_info_full = pyshm.OSMOS.retrieve_LIRIS_info([options.pid])
+            # LIRIS_info_full = pyshm.OSMOS.retrieve_LIRIS_info(list(range(1,500)))
 
             if LIRIS_info_full is None:
-                raise ValueError("Failed to retrieve information.")
+                raise ValueError("Failed to retrieve information of the project {} from server.".format(options.pid))
+            else:
+                try:
+                    os.makedirs(options.projdir)
+                    if options.verbose > 0:
+                        print("Create the project folder {}".format(options.projdir))
+                except Exception:
+                    pass
 
             # save essential information in an Excel file
             LIRIS_info = LIRIS_info_full[['pid', 'uid', 'locationkeyid', 'parama', 'paramb', 'paramc']]
@@ -324,7 +344,7 @@ def main():
             if options.verbose:
                 print("Information saved in {}".format(options.infile_info))
         else:
-            LIRIS_info = pd.read_excel(os.path.join(options.dbdir, 'LIRIS_info.xlsx'))
+            LIRIS_info = pd.read_excel(options.infile_info)
 
         # 2. Get LIRIS data
         if not os.path.isfile(options.infile_data):
@@ -332,15 +352,8 @@ def main():
                 print("Retrieving data of the project {} from MongoDB...".format(options.pid))
 
             LIRIS = LIRIS_info[LIRIS_info['pid']==options.pid].reset_index(drop=True)  # info of this pid
-            Sdata, _ = pyshm.OSMOS.retrieve_data(options.hostname, options.port, options.pid, LIRIS)
+            Sdata, _ = pyshm.OSMOS.retrieve_data(options.hostname, options.port, options.pid, LIRIS, options.dbname, options.clname)
             if len(Sdata) > 0:
-                try:
-                    os.makedirs(options.projdir)
-                    if options.verbose > 0:
-                        print("Create the project folder {}".format(options.projdir))
-                except Exception:
-                    pass
-
                 # save data in an Excel file
                 writer = pd.ExcelWriter(options.infile_data)
                 for loc, data in Sdata.items():
@@ -352,10 +365,11 @@ def main():
                 if options.verbose:
                     print("Data saved in {}".format(options.infile_data))
             else:
-                raise Exception("No data found in MongoDB.")
+                raise Exception("No data found in MongoDB for the project {}.".format(options.pid))
 
     Locations = list(Sdata.keys())  # All locations with data
     Locations.sort()
+    UIDs = {int(u['locationkeyid']): u['uid'] for n,u in LIRIS.iterrows()}  # loc -> uid mapping
 
     if options.verbose:
         print("ID of available locations: {}".format(Locations))
@@ -522,6 +536,7 @@ def main():
         # Amatc = np.asarray(Amatc0)  # 4d, shape : len(alocs) x Nt x ? x ?
         # Acovc = np.asarray(Acovc0)  # 3d, shape : len(alocs) x Nt x ?
         # print(Amat.shape, Acov.shape, Amatc.shape, Acovc.shape)
+        print(Amat.shape, Acov.shape)
 
     else:
         raise NotImplementedError()
@@ -538,7 +553,7 @@ def main():
 
 
     ##### Step 4. Clustering of sensors and low rank approximation #####
-    #
+    # not for the seasonal component
     if not options.component.upper() == 'SEASONAL':
         # projection of the residual onto a low dimension subspace
         X0 = np.asarray(Eerr_tfm).T
@@ -659,8 +674,7 @@ def main():
 
         # # parallel version:
         # from joblib import Parallel, delayed
-        # htoto = Parallel(n_jobs=4)(delayed(Hurstfunc)(loc, mYerp[loc].diff(24*2), options.hwsize, options.hrng) for loc in alocs)
-        # htoto = Parallel(n_jobs=4)(delayed(Hurstfunc)(loc, Eerr_tfm[loc], options.hwsize, options.hrng) for loc in options.alocs)
+        # htoto = Parallel(n_jobs=4)(delayed(Hurstfunc)(loc, Eerr_tfm[loc], options.hurst_mwsize, options.hurst_sclrng) for loc in options.alocs)
         # for h in htoto:
         #     Hexp0.update(h)
         #
@@ -668,6 +682,7 @@ def main():
         for loc in options.alocs:
             Hexp0[loc], _, _ = pyshm.Stat.Hurst(np.asarray(Eerr_tfm[loc]), options.hurst_mwsize, sclrng=options.hurst_sclrng, wvlname="haar")
             # Hexp0[loc], Bexp0[loc], Vexp0[loc] = pyshm.Stat.Hurst(np.asarray(Eerr_tfm[loc]), options.hurst_mwsize, sclrng=options.hurst_sclrng, wvlname="haar")
+
         Apers = pd.DataFrame(Hexp0, index=Time_idx)
         # Bexp = pd.DataFrame(Bexp0, index=Time_idx)
         # Vexp = pd.DataFrame(Vexp0, index=Time_idx)
@@ -702,6 +717,9 @@ def main():
     # Atran : amplitude of rate of transient events
     # Astd : amplitude of std
     # Apers : amplitude of persistence
+
+    if options.verbose:
+        print('Exporting results...')
 
     try:
         os.makedirs(options.outdir)
@@ -749,11 +767,89 @@ def main():
         if Apers is not None:
             Apers.to_excel(writer, sheet_name="Persistence")
         writer.save()
-    else:
-        Resdic = {"Temperature":Tcpn_tfm,
-                "Elongation":Ecpn_tfm,
-                "Prediction":Eprd_tfm
-                }
+
+        if options.verbose:
+            print("Results saved in\n{}".format(options.outfile_results))
+    else:  # export to MongoDB
+        client = MongoClient(options.hostname, options.port)
+        # collection = client['OSMOS']['Liris_Measure']  # collection
+        db = client[options.dbname]
+
+        # overwrite: first remove existing results
+        for collection in [db['Liris_Measure_Sivienn_Modified'], db['Liris_Measure_Sivienn_Virtual'], db['Liris_Measure_Sivienn_Coeffs']]:
+            collection.delete_many({'pid': str(options.pid), 'component': options.component.upper()})
+
+        # per sensor results
+        collection = db['Liris_Measure_Sivienn_Modified']
+        # Xdic = {}
+        for loc in options.alocs:
+            toto0 = {'temperature': np.asarray(Tcpn_tfm[loc]),
+                'measure': np.asarray(Ecpn_tfm[loc]),
+                'prediction': np.asarray(Eprd_tfm[loc]),
+                'error': np.asarray(Ecpn_tfm[loc] - Eprd_tfm[loc]),
+                'ssproj': np.asarray(Eerr_prj[loc]),
+                'transient': None if Atran is None else np.asarray(Atran[loc]),
+                'std': None if Astd is None else np.asarray(Astd[loc]),
+                'persistence': None if Apers is None else np.asarray(Apers[loc]),
+                # 'date': [t.to_pydatetime() for t in Time_idx]}
+            }
+            xdic = pd.DataFrame(toto0, index=Time_idx)
+            # xdic = pd.DataFrame(toto0, index=Time_idx)
+
+            # split the results
+            # xdic_splitted = split_by_day(xdic)
+            res_by_day = []
+            for x in split_by_day(xdic): # xdic_splitted:
+                # datalist = [dict(u), for t,u in x.iterrows()]  # list for data
+
+                # for t,u in x.iterrows():
+                #     v = dict(u)
+                #     # print(v)
+                #     datalist.append(v.update('date': t.to_pydatetime()))
+
+                t0 = x.index[0]
+                # collection.insert_one({'pid': str(options.pid),
+                #                         'component': options.component.upper(),
+                #                         'location': str(loc),
+                #                         'uid': UIDs[loc]})
+                collection.insert_one({'pid': str(options.pid),
+                                        'component': options.component.upper(),
+                                        'location': str(loc),
+                                        'uid': UIDs[loc],
+                                        'data': [dict(u).update({'date': t.to_pydatetime()}) for t,u in x.iterrows()],
+                                        # 'data': datalist,
+                                        'start': t0.to_pydatetime(),
+                                        'year': t0.year, 'month': t0.month, 'day':t0.day})
+
+        if Virt is not None:
+            collection = db['Liris_Measure_Sivienn_Virtual']
+            # vdim = Virt.shape[1]
+            for x in split_by_day(Virt):
+                t0 = x.index[0]
+                # y = np.asarray(x)  # 2d array
+                collection.insert_one({'pid': str(options.pid),
+                                        'component': options.component.upper(),
+                                        # 'vid': n,
+                                        'data': [{'date':t.to_pydatetime(), 'measure':list(u)} for t,u in x.iterrows()],
+                                        'start': t0.to_pydatetime(),
+                                        'year': t0.year, 'month': t0.month, 'day':t0.day})
+                # for n in range(vdim):
+                #     collection.insert_one({'pid': str(options.pid),
+                #                             'component': options.component.upper(),
+                #                             'vid': n,
+                #                             'data': [{'date':t.to_pydatetime(), 'measure':u[n]}, for t,u in x.iterrows()],
+                #                             'start': t0.to_pydatetime(),
+                #                             'year': t0.year, 'month': t0.month, 'day':t0.day})
+
+        if Scof_pd is not None:
+            collection = db['Liris_Measure_Sivienn_Coeffs']
+            for loc in options.alocs:
+                collection.insert_one({'pid': str(options.pid),
+                                        'component': options.component.upper(),
+                                        'location': str(loc),
+                                        'uid': UIDs[loc],
+                                        'data': list(Scof_pd[loc])})
+
         # if options.subcommand.upper() == 'LS':
         #     toto = pd.DataFrame(Amat.T, columns=options.alocs)
         #     Resdic["Flattened kernel"] = toto
@@ -776,22 +872,23 @@ def main():
         #     # Acovc_pd = pd.DataFrame(Acovc_mean, columns=options.alocs, index=Time_idx)
         #     # Acovc_pd.to_excel(writer, sheet_name="Mean var. of reduced kernel")
         #     pass
-        if Virt is not None:
-            Resdic["Virtual sensors"] = Virt
-            Resdic["Subspace projection"] = Eerr_prj
-        if Scof_pd is not None:
-            Resdic["PCA coefficients"] = Scof_pd
-        if Atran is not None:
-            Resdic["Transient"] = Atran
-        if Astd is not None:
-            Resdic["Std"] = Astd
-        if Apers is not None:
-            Resdic["Persistence"] = Apers
 
-        resjson = to_json(Resdic, verbose=options.verbose)
-        options.outfile_results = os.path.join(options.outdir, "results.json")
-        with open(options.outfile_results, 'w') as fp:
-            json.dump(resjson, fp, cls=MyEncoder)
+        # if Virt is not None:
+        #     Resdic["Virtual sensors"] = Virt
+        #     Resdic["Subspace projection"] = Eerr_prj
+        # if Scof_pd is not None:
+        #     Resdic["PCA coefficients"] = Scof_pd
+        # if Atran is not None:
+        #     Resdic["Transient"] = Atran
+        # if Astd is not None:
+        #     Resdic["Std"] = Astd
+        # if Apers is not None:
+        #     Resdic["Persistence"] = Apers
+
+        # resjson = to_json(Resdic, verbose=options.verbose)
+        # options.outfile_results = os.path.join(options.outdir, "results.json")
+        # with open(options.outfile_results, 'w') as fp:
+        #     json.dump(resjson, fp, cls=MyEncoder)
 
     ### 6.2 The following variables will be saved in a json file ###
     # cluster_locs : clustering of sensors
@@ -814,7 +911,6 @@ def main():
         json.dump(vars(options), fp, cls=MyEncoder)
 
     if options.verbose:
-        print("Results saved in\n{}".format(options.outfile_results))
         print('Alarms saved in\n{}'.format(options.outfile_alarms))
         print('Options saved in\n{}'.format(options.outfile_options))
 

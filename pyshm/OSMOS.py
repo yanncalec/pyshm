@@ -43,12 +43,13 @@ def _retrieve_LIRIS_info(PID):
 
     payload = {"token": token,
             "action": "getlirisfromproject",
+            # "action": "getlistlocationsused",  # <- incomplete information
             "data": {"projectkeyid": PID}}
     r = session.post("https://client.osmos-group.com/server/application.php",
                     data=json.dumps(payload))
     toto = json.loads(r.text)
 
-    if toto['result']=='SUCCESS' and len(toto['data']['records'])>0:
+    if toto['result']=='SUCCESS' and len(toto['data']['records'])>0:  # <-toto['data']
 #         print(toto)
         P = pd.DataFrame(toto['data']['records'])
         P['pid'] = PID
@@ -72,13 +73,14 @@ def retrieve_LIRIS_info(PIDs):
             L.append(P)
     if len(L) > 0:
         LIRIS_info = pd.concat(L).reset_index(drop=True)
+        # print(LIRIS_info.keys())
         del LIRIS_info['location']  # remove the field location which is redundant
     else:
         LIRIS_info = None
     return LIRIS_info
 
 
-def retrieve_data(hostname, port, pid, liris, redundant=False):
+def retrieve_data(hostname, port, pid, liris, dbname='OSMOS', clname='Liris_Measure', redundant=False):
     """Retrieve data of a PID from MongoDB.
 
     Args:
@@ -90,18 +92,19 @@ def retrieve_data(hostname, port, pid, liris, redundant=False):
         Sdata, Parms: a dictionary of pandas DataFrame and the parameters of transformation.
     """
     client = MongoClient(hostname, port)
-    collection = client['OSMOS']['Liris_Measure']  # collection
+    # collection = client['OSMOS']['Liris_Measure']  # collection
+    collection = client[dbname][clname]  # collection
 
     Sdata = {}  # dictionary of preprocessed static data
     Parms = {}  # dictionary of parameters
 
     for n, u in liris.iterrows(): # iteration on all sensors of the project
-        uid = u['uid']
+        # uid = u['uid']
         loc = int(u['locationkeyid'])
 
         X0 = []
         try:
-            X0 = mongo_load_static(collection, uid, dflag=True)
+            X0 = mongo_load_static(collection, loc, dflag=True)
         except Exception as msg:
             print(msg)
             continue
@@ -997,20 +1000,20 @@ def _mongo_transform(X):
     return pd.DataFrame({'ElongationTfm':elon, 'TemperatureTfm':temp, 'ElongationRaw':m0, 'TemperatureRaw':t0, 'Reference':r0, 'parama':a, 'paramb':b, 'paramc':c}, index=P['date']).sort_index()
 
 
-def mongo_load_static(C, uid, dflag=True):
+def mongo_load_static(C, loc, dflag=True):
     """Extract raw static data from a collection of MongoDB and apply transformation
 
     The transformation applied on temperature and on elongation are defined in the function :func:raw2celsuis and :func:raw2millimeters.
 
     Args:
         C: collection of MongoDB
-        uid (str): sensor ID
+        loc (int): location key ID
         dflag (bool): if True remove duplicate entries
     Return:
         Pandas DataFrame with 'date' as index, and containing the fields 'Temperature' (in celsuis) and 'Elongation' (in millimeter).
     """
     # get raw data
-    rawdata = C.find({'uid':uid, 'type':1})
+    rawdata = C.find({'location':loc, 'type':1})
     # normally, rawdata is a list-like structure and rawdata[0] contains the fields
     # `['data', 'uid', 'location', 'paramb', 'start', 'paramc', 'year', 'day', 'parama', 'month', '_id', 'newdoc', 'type']`
     # but singular cases may exist and must be handled.
