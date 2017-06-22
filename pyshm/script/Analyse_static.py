@@ -177,7 +177,7 @@ def main():
         parser.add_argument("pid", type=int, help="project key ID.")
         parser.add_argument("dbdir", type=str, help="directory of local database and outputs.")
         parser.add_argument("-v", "--verbose", dest="verbose", action="count", default=0, help="print messages.")
-        parser.add_argument("--excel", dest="excel", action="store_true", default=False, help="save results in excel format.")
+        # parser.add_argument("--excel", dest="excel", action="store_true", default=False, help="save results in excel format.")
 
         # parser.add_argument("--raw", dest="raw", action="store_true", default=False, help="use non-transformed raw data (default: use transformed data).")
 
@@ -203,7 +203,7 @@ def main():
         tdata_opts.add_argument("--Ntrn", dest="Ntrn", type=int, default=6*30*24, help="length of the training data (default=24*30*6).", metavar="integer")
 
         model_opts = parser.add_argument_group("Model options")
-        model_opts.add_argument("--lag", dest="lag", type=int, default=6, help="length of the convolution kernel (default=6).", metavar="integer")
+        model_opts.add_argument("--lag", dest="lag", type=int, default=24, help="length of the convolution kernel (default=24).", metavar="integer")
         model_opts.add_argument("--pord", dest="pord", type=int, default=None, help="order of non-thermal polynomial process (default=1 for trend or all component, 0 for raw or seasonal component).", metavar="integer")
         model_opts.add_argument("--dord", dest="dord", type=int, default=None, help="order of derivative (default=1 for trend or all component, 0 for raw or seasonal component).", metavar="integer")
         model_opts.add_argument("--pflag", dest="pflag", action="store_true", default=False, help="add polynomial trends in the prediction (default=no polynomial trend).")
@@ -231,10 +231,9 @@ def main():
     regressor_opts = parser_ls.add_argument_group("Linear regression options (ls model only)")
     regressor_opts.add_argument("--Nexp", dest="Nexp", type=int, default=0, help="number of experiments in RANSAC (default=0, no RANSAC).", metavar="integer")
     regressor_opts.add_argument("--snr2", dest="snr2", type=float, default=10**4, help="squared signal-to-noise ratio of the Gaussian polynomial process (default=1e4), no effect if clen2 is not set.", metavar="float")
-    regressor_opts.add_argument("--clen2", dest="clen2", type=float, default=None, help="squared correlation length of the Gaussian polynomial process (default=None, use deterministic polynomial process).", metavar="float")
+    regressor_opts.add_argument("--clen2", dest="clen2", type=float, default=None, help="squared correlation length of the Gaussian polynomial process (default=None, use deterministic polynomial process). Setting this parameter may slow down the training.", metavar="float")
     regressor_opts.add_argument("--dspl", dest="dspl", type=int, default=1, help="down-sampling rate of training data for acceleration on large training dataset (default=1, no down-sampling).", metavar="integer")
-    regressor_opts.add_argument("--nvrng", dest="nvrng", type=int, default=100, help="use multiple values around the given vthresh for regularization (default=100).", metavar="integer")
-    regressor_opts.add_argument("--vreg", dest="vreg", type=float, default=0, help="factor of regularization (default=0).", metavar="float")
+    # regressor_opts.add_argument("--vreg", dest="vreg", type=float, default=0, help="factor of regularization (default=0).", metavar="float")
 
     kalman_opts = parser_bm.add_argument_group("Kalman filter options (bm model only)")
     kalman_opts.add_argument("--sigmaq2", dest="sigmaq2", type=float, default=10**-6, help="variance of transition noise (default=1e-6).", metavar="float")
@@ -243,7 +242,8 @@ def main():
     kalman_opts.add_argument("--rescale", dest="rescale", action="store_true", default=False, help="rescale the input and output variables to normalize the amplitude.")
 
     options = mainparser.parse_args()
-    options.excel = False  # force excel format
+    options.toexcel = True  # export in excel format
+    options.tomongo = True  # export in MongoDB
 
     # set pord and dord automatically according to the component's type
     if options.component.upper() == 'RAW':
@@ -299,7 +299,8 @@ def main():
     outdir0 = os.path.join(options.projdir, options.func_name, "model[{}]_component[{}]_alocs[{}]_[from_{}_to_{}]_Ntrn[{}]_lag[{}]_pord[{}]_dord[{}]_pflag[{}]_vthresh[{:.1e}]".format(options.subcommand.upper(), options.component.upper(), options.alocs, options.time0, options.time1, options.Ntrn, options.lag, options.pord, options.dord, options.pflag, options.vthresh))
 
     if options.subcommand.upper() == 'LS':
-        options.outdir = outdir0 + "_clen2[{}]_snr2[{:.1e}]_dspl[{}]_Nexp[{}]_vreg[{}]".format(options.clen2, options.snr2, options.dspl, options.Nexp, options.vreg)  # output directory
+        # options.outdir = outdir0 + "_clen2[{}]_snr2[{:.1e}]_dspl[{}]_Nexp[{}]_vreg[{}]".format(options.clen2, options.snr2, options.dspl, options.Nexp, options.vreg)  # output directory
+        options.outdir = outdir0 + "_clen2[{}]_snr2[{:.1e}]_dspl[{}]_Nexp[{}]".format(options.clen2, options.snr2, options.dspl, options.Nexp)  # output directory
     else:
         options.outdir = outdir0 + "_sigmaq2[{:.1e}]_sigmar2[{:.1e}]_rescale[{}]".format(options.sigmaq2, options.sigmar2, options.rescale)
 
@@ -467,24 +468,19 @@ def main():
             print("\tTraining period: from {} to {}, about {} days.".format(Time_idx[options.trnperiod[0]], Time_idx[options.trnperiod[1]-1], int((options.trnperiod[1]-options.trnperiod[0])/24)))
 
     if options.subcommand.upper() == "LS":
-        # run deconvolution for a range of values around vthresh and take the average
-        if options.vthresh > 0:
-            vthresh_min = options.vthresh / options.nvrng
-            vthresh_max = options.vthresh * options.nvrng
-            vthresh_list = 10**(np.linspace(np.log10(vthresh_min), np.log10(vthresh_max), options.nvrng))
-            vthresh_list = vthresh_list[vthresh_list<=0.01]
-        else:
-            vthresh_list = np.asarray([0])
+        # a first run to determinate the value of cdim
+        yprd0, amat0, amatc0 = pyshm.Models.deconv(Yvar, Xvar, options.lag, dord=options.dord, pord=options.pord, snr2=options.snr2, clen2=options.clen2, dspl=options.dspl, sidx=options.sidx, Ntrn=options.Ntrn, vthresh=options.vthresh, Nexp=options.Nexp, pflag=options.pflag)
 
-        yprd_list = []
-        amat_list = []
-        # amatc_list = []
-
-        for vthresh in vthresh_list:
-            yprd0, amat0, amatc0 = pyshm.Models.deconv(Yvar, Xvar, options.lag, dord=options.dord, pord=options.pord, snr2=options.snr2, clen2=options.clen2, dspl=options.dspl, sidx=options.sidx, Ntrn=options.Ntrn, vthresh=vthresh, Nexp=options.Nexp, pflag=options.pflag)
+        # a second run for a range of cdim
+        yprd_list = [yprd0]
+        amat_list = [amat0]
+        # amatc_list = [amatc0]
+        for cdim, _ in zip(range(amatc0.shape[1], amat0.shape[1]), range(10)):
+            # print("second run with cdim={}".format(cdim))
+            yprd0, amat0, amatc0 = pyshm.Models.deconv(Yvar, Xvar, options.lag, dord=options.dord, pord=options.pord, snr2=options.snr2, clen2=options.clen2, dspl=options.dspl, sidx=options.sidx, Ntrn=options.Ntrn, vthresh=0, cdim=cdim, Nexp=options.Nexp, pflag=options.pflag)
             yprd_list.append(yprd0)
             amat_list.append(amat0)
-            # Amatc0.append(amatc)
+        # take the mean to reduce the high freqency anomalies
         Yprd = np.asarray(yprd_list).mean(axis=0)
         Amat = np.asarray(amat_list).mean(axis=0)
         # Amatc = np.asarray(amatc_list).mean(axis=0)
@@ -504,30 +500,15 @@ def main():
         # Amatc0 = []  # reduced convolution matrices, or the thermal law
         # Acovc0 = []  # covariance matrix of Amatc
 
-        # vthresh_min = options.vthresh / 100
-        # vthresh_min = max(0.01, options.vthresh * 100)
-        # vthresh_list = 10**(np.linspace(np.log10(vthresh_min), np.log10(vthresh_max), 100))
-        vthresh_list = [options.vthresh]
-
         for n, aloc in enumerate(options.alocs):
             if options.verbose:
                 print("\tProcessing the location {}...".format(aloc))
-            yprd_list = []
-            amat_list = []
-            acov_list = []
-            for vthresh in vthresh_list:
-                yprd0, (amat0,acov0), (amatc0,acovc0) = pyshm.Models.deconv_bm(Yvar[[n],:], Xvar, options.lag, dord=options.dord, pord=options.pord, sigmaq2=options.sigmaq2, sigmar2=options.sigmar2, x0=0., p0=1., smooth=smoothflag, sidx=options.sidx, Ntrn=options.Ntrn, vthresh=vthresh, rescale=options.rescale)
-                yprd_list.append(yprd0)
-                amat_list.append(amat0)
-                acov_list.append(acov0)
 
-            yprd = np.asarray(yprd_list).mean(axis=0)
-            amat = np.asarray(amat_list).mean(axis=0)
-            acov = np.asarray(acov_list).mean(axis=0)
-            # print(yprd.shape, ycov.shape, amat.shape, acov.shape)
-            Yprd0.append(yprd)
-            Amat0.append(amat)
-            Acov0.append(np.asarray([np.diag(a) for a in acov]))
+            yprd0, (amat0,acov0), (amatc0,acovc0) = pyshm.Models.deconv_bm(Yvar[[n],:], Xvar, options.lag, dord=options.dord, pord=options.pord, sigmaq2=options.sigmaq2, sigmar2=options.sigmar2, x0=0., p0=1., smooth=smoothflag, sidx=options.sidx, Ntrn=options.Ntrn, vthresh=options.vthresh, rescale=options.rescale)
+
+            Yprd0.append(np.asarray(yprd0))
+            Amat0.append(np.asarray(amat0))
+            Acov0.append(np.asarray([np.diag(a) for a in acov0]))
             # Amatc0.append(amatc)
             # Acovc0.append(np.asarray([np.diag(a) for a in acovc]))
         Yprd = np.squeeze(np.asarray(Yprd0))  # shape : len(alocs) x Nt
@@ -536,7 +517,7 @@ def main():
         # Amatc = np.asarray(Amatc0)  # 4d, shape : len(alocs) x Nt x ? x ?
         # Acovc = np.asarray(Acovc0)  # 3d, shape : len(alocs) x Nt x ?
         # print(Amat.shape, Acov.shape, Amatc.shape, Acovc.shape)
-        print(Amat.shape, Acov.shape)
+        # print(Amat.shape, Acov.shape)
 
     else:
         raise NotImplementedError()
@@ -723,12 +704,12 @@ def main():
 
     try:
         os.makedirs(options.outdir)
-        if options.verbose > 0:
-            print("Create the output folder:\n\t{}".format(options.outdir))
+        # if options.verbose > 0:
+        #     print("Create the output folder:\n\t{}".format(options.outdir))
     except Exception:
         pass
 
-    if options.excel:
+    if options.toexcel:
         options.outfile_results = os.path.join(options.outdir, "results.xlsx")
         writer = pd.ExcelWriter(options.outfile_results)
 
@@ -770,17 +751,22 @@ def main():
 
         if options.verbose:
             print("Results saved in\n{}".format(options.outfile_results))
-    else:  # export to MongoDB
+
+    if options.tomongo:  # export to MongoDB
         client = MongoClient(options.hostname, options.port)
         # collection = client['OSMOS']['Liris_Measure']  # collection
         db = client[options.dbname]
 
         # overwrite: first remove existing results
-        for collection in [db['Liris_Measure_Sivienn_Modified'], db['Liris_Measure_Sivienn_Virtual'], db['Liris_Measure_Sivienn_Coeffs']]:
-            collection.delete_many({'pid': str(options.pid), 'component': options.component.upper()})
+        clname_modified = options.clname + '_Sivienn_Modified'
+        clname_virtual = options.clname + '_Sivienn_Virtual'
+        clname_coeffs = options.clname + '_Sivienn_Coeffs'
+
+        for collection in [db[clname_modified], db[clname_virtual], db[clname_coeffs]]:
+            collection.delete_many({'pid': str(options.pid), 'component': options.component.upper(), 'model':options.subcommand.upper()})
 
         # per sensor results
-        collection = db['Liris_Measure_Sivienn_Modified']
+        collection = db[clname_modified]
         # Xdic = {}
         for loc in options.alocs:
             toto0 = {'temperature': np.asarray(Tcpn_tfm[loc]),
@@ -791,43 +777,35 @@ def main():
                 'transient': None if Atran is None else np.asarray(Atran[loc]),
                 'std': None if Astd is None else np.asarray(Astd[loc]),
                 'persistence': None if Apers is None else np.asarray(Apers[loc]),
-                # 'date': [t.to_pydatetime() for t in Time_idx]}
+                # 'date': [t.to_pydatetime() for t in Time_idx],  # <- this results a strange "NaTType does not support..." error
             }
             xdic = pd.DataFrame(toto0, index=Time_idx)
-            # xdic = pd.DataFrame(toto0, index=Time_idx)
 
             # split the results
             # xdic_splitted = split_by_day(xdic)
-            res_by_day = []
             for x in split_by_day(xdic): # xdic_splitted:
-                # datalist = [dict(u), for t,u in x.iterrows()]  # list for data
-
-                # for t,u in x.iterrows():
-                #     v = dict(u)
-                #     # print(v)
-                #     datalist.append(v.update('date': t.to_pydatetime()))
-
+                datalist = [{**u, 'date':t.to_pydatetime()} for t,u in x.iterrows()]
                 t0 = x.index[0]
-                # collection.insert_one({'pid': str(options.pid),
-                #                         'component': options.component.upper(),
-                #                         'location': str(loc),
-                #                         'uid': UIDs[loc]})
                 collection.insert_one({'pid': str(options.pid),
+                                        'model': options.subcommand.upper(),
                                         'component': options.component.upper(),
                                         'location': str(loc),
                                         'uid': UIDs[loc],
-                                        'data': [dict(u).update({'date': t.to_pydatetime()}) for t,u in x.iterrows()],
-                                        # 'data': datalist,
+                                        'data': datalist,
                                         'start': t0.to_pydatetime(),
-                                        'year': t0.year, 'month': t0.month, 'day':t0.day})
+                                        'year': t0.year,
+                                        'month': t0.month,
+                                        'day':t0.day,
+                                        })
 
         if Virt is not None:
-            collection = db['Liris_Measure_Sivienn_Virtual']
+            collection = db[clname_virtual]
             # vdim = Virt.shape[1]
             for x in split_by_day(Virt):
                 t0 = x.index[0]
                 # y = np.asarray(x)  # 2d array
                 collection.insert_one({'pid': str(options.pid),
+                                        'model': options.subcommand.upper(),
                                         'component': options.component.upper(),
                                         # 'vid': n,
                                         'data': [{'date':t.to_pydatetime(), 'measure':list(u)} for t,u in x.iterrows()],
@@ -842,13 +820,16 @@ def main():
                 #                             'year': t0.year, 'month': t0.month, 'day':t0.day})
 
         if Scof_pd is not None:
-            collection = db['Liris_Measure_Sivienn_Coeffs']
+            collection = db[clname_coeffs]
             for loc in options.alocs:
                 collection.insert_one({'pid': str(options.pid),
+                                        'model': options.subcommand.upper(),
                                         'component': options.component.upper(),
                                         'location': str(loc),
                                         'uid': UIDs[loc],
                                         'data': list(Scof_pd[loc])})
+        if options.verbose:
+            print("Results exported in MongoDB")
 
         # if options.subcommand.upper() == 'LS':
         #     toto = pd.DataFrame(Amat.T, columns=options.alocs)

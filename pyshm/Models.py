@@ -23,7 +23,7 @@ def _gp_cov_matrix(Nt, snr2, clen2):
     return scipy.linalg.toeplitz(C)
 
 
-def _dgp_cov_matrix(Nt, snr2=100, clen2=1):
+def _dgp_cov_matrix_wrong(Nt, snr2=100, clen2=1):
     """construct covariance matrix of a differential Gaussian process.
 
     Args:
@@ -35,6 +35,22 @@ def _dgp_cov_matrix(Nt, snr2=100, clen2=1):
     ddf = lambda x: (-2/clen2 + (2*x/clen2)**2) * np.exp(-(x**2)/clen2) # second derivative of f(x)=exp(-(x**2)/clen2)
     C = -snr2 * ddf(np.arange(Nt))
     C[0] += 2 + 0.01  # noise, add a small number to regularize
+    C[1] += -1
+    return scipy.linalg.toeplitz(C)
+
+
+def _dgp_cov_matrix(Nt, snr2=100, clen2=1):
+    """construct covariance matrix of a differential Gaussian process.
+
+    Args:
+        snr2: squared SNR
+        clen2: squared correlation length
+    Returns:
+        W, Winv: the covariance matrix and its inverse
+    """
+    f = lambda x: np.exp(-(x**2)/clen2)
+    C = snr2 * (2*f(np.arange(Nt)) - f(1+np.arange(Nt))- f(-1+np.arange(Nt)))
+    C[0] += 2  # noise, add a small number to regularize
     C[1] += -1
     return scipy.linalg.toeplitz(C)
 
