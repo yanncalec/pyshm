@@ -25,7 +25,8 @@ class LIRIS:
     def __init__(self, **entries):
         self.__dict__.update(entries)
 
-def _retrieve_LIRIS_info(PID):
+
+def _retrieve_LIRIS_info(PID, link, login, password):
     # disable certificate check
     requests.packages.urllib3.disable_warnings()
 
@@ -33,8 +34,8 @@ def _retrieve_LIRIS_info(PID):
     session = requests.session()
 
     # get the token
-    payload = {"token":"null","action":"loginClient","data":{"email":"be@osmos-group.com","password":"osmos"}}
-    r = session.post("https://client.osmos-group.com/server/application.php", data=json.dumps(payload))
+    payload = {"token":"null","action":"loginClient","data":{"email":login,"password":password}}
+    r = session.get(link, data=json.dumps(payload), verify=False)
     response = json.loads(r.text)
     assert(response['result'] == 'SUCCESS')  # check the response from the server
 
@@ -45,8 +46,7 @@ def _retrieve_LIRIS_info(PID):
             "action": "getlirisfromproject",
             # "action": "getlistlocationsused",  # <- incomplete information
             "data": {"projectkeyid": PID}}
-    r = session.post("https://client.osmos-group.com/server/application.php",
-                    data=json.dumps(payload))
+    r = session.get(link, data=json.dumps(payload), verify=False)
     toto = json.loads(r.text)
 
     if toto['result']=='SUCCESS' and len(toto['data']['records'])>0:  # <-toto['data']
@@ -58,36 +58,37 @@ def _retrieve_LIRIS_info(PID):
         return None
 
 
-def retrieve_LIRIS_info(PIDs):
+def retrieve_LIRIS_info(PIDs, link="https://client.osmos-group.com/server/application.php", login="be@osmos-group.com", password="osmos", redundant=False):
     """Retrive LIRIS info of projects from OSMOS server.
 
     Args:
         PIDs (list): list of PID
-    Returns:
-        pandas DataFrame
+    Return:
+        an object of pandas DataFrame containing the information of given PIDs.
     """
     L = []
     for pid in PIDs:
-        P = _retrieve_LIRIS_info(pid)
+        P = _retrieve_LIRIS_info(pid, link=link, login=login, password=password)
         if P is not None:
             L.append(P)
     if len(L) > 0:
         LIRIS_info = pd.concat(L).reset_index(drop=True)
         # print(LIRIS_info.keys())
-        del LIRIS_info['location']  # remove the field location which is redundant
+        if not redundant:  # remove the field location which seems to be redundant
+            del LIRIS_info['location']
     else:
         LIRIS_info = None
     return LIRIS_info
 
 
-def retrieve_data(hostname, port, pid, liris, dbname='OSMOS', clname='Liris_Measure', redundant=False):
+def retrieve_data(hostname, port, pid, locations, dbname='OSMOS', clname='Liris_Measure', redundant=True):
     """Retrieve data of a PID from MongoDB.
 
     Args:
         hostname (str): name of the MongoDB server
         port (int): port of the MongoDB server
         pid (int): project key ID
-        liris (pandas DataFrame): a datasheet containing the pair of uid-locationkeyid
+        locations (list): list of locations associated to pid
     Returns:
         Sdata, Parms: a dictionary of pandas DataFrame and the parameters of transformation.
     """
@@ -98,9 +99,9 @@ def retrieve_data(hostname, port, pid, liris, dbname='OSMOS', clname='Liris_Meas
     Sdata = {}  # dictionary of preprocessed static data
     Parms = {}  # dictionary of parameters
 
-    for n, u in liris.iterrows(): # iteration on all sensors of the project
+    for loc in locations: # iteration on all sensors of the project
         # uid = u['uid']
-        loc = int(u['locationkeyid'])
+        # loc = int(u['locationkeyid'])
 
         X0 = []
         try:
@@ -118,10 +119,10 @@ def retrieve_data(hostname, port, pid, liris, dbname='OSMOS', clname='Liris_Meas
             toto = pd.Series(False,index=Rtsx); toto[Ntsx] = True
             Sdata[loc]['Missing'] = toto  # a field indicating missing values
 
-            if not redundant:  # remove redundant information
-                del Sdata[loc]['parama'], Sdata[loc]['paramb'], Sdata[loc]['paramc']
+            # if not redundant:  # remove redundant information
+            #     del Sdata[loc]['parama'], Sdata[loc]['paramb'], Sdata[loc]['paramc']
 
-            Parms[loc] = (u['parama'], u['paramb'], u['paramc'])
+            Parms[loc] = tuple(np.asarray(Sdata[loc][['parama', 'paramb', 'paramc']]).mean(axis=0))
     return Sdata, Parms
 
 
@@ -936,22 +937,28 @@ def raw2celsuis(V):
     return pd.DataFrame(toto.T, columns=V.columns, index=V.index)
 
 
-def _raw2millimeters(x, a, b, c):
-    return (a*x**2 + b*x + c)/1000.-2.
+# def _raw2millimeters(x, a, b, c):
+#     print(a,b,c)
+#     return (a*x**2 + b*x + c)/1000. - 2.
 
-def raw2millimeters(V, Parms):
+def raw2millimeters(V, R, Parms):
     """Convert raw elongation to millimeters.
 
     Args:
-        V (pandas DataFrame): V[loc] is the raw elongation of loc
+        V (pandas DataFrame): V[loc] is the raw elongation of the location loc
+        R (pandas DataFrame): R[loc] is the reference
         Parms (dict): Parms[loc] is the tuple of parameters (a, b, c)
     Returns:
         a pandas DataFrame of elongation in millimeters
     """
     toto={}
-    # print(V.keys(), Parms.keys())
-    for loc in V.keys():
-        toto[loc] = _raw2millimeters(np.asarray(V[loc]), *Parms[loc])
+    X = V/R
+    for loc in V.keys():  # iteration on V since Parms may contain more locations
+        # print(loc)
+        # print(X[loc].head())
+        x = np.asarray(X[loc])
+        a,b,c = Parms[loc]
+        toto[loc] = (a*x**2 + b*x + c)/1000 - 2
     return pd.DataFrame(toto, index=V.index)
 
 
@@ -966,36 +973,45 @@ def _mongo_transform(X):
     P = pd.DataFrame(X['data'])
     m0 = np.asarray(P['measure'])
     t0 = np.asarray(P['temperature'])
-    r0 = np.nan * np.zeros(len(P)) if not 'reference' in P else np.asarray(P['reference'])
+    # r0 = np.nan * np.zeros(len(P)) if not 'reference' in P else np.asarray(P['reference'])
+    r0 = np.asarray(P['reference'])
 
-    # transform of 'measure' and 'temperature'
-    # Singular case:  check parameters
-    a = np.nan if (not 'parama' in X) else X['parama']
-    b = np.nan if (not 'paramb' in X) else X['paramb']
-    c = np.nan if (not 'paramc' in X) else X['paramc']
+    if np.any(np.abs(r0) == 0):
+        raise ValueError("Zero in the reference values detected! Transformation of raw data failed.")
 
-    if np.isnan(a) or np.isnan(b) or np.isnan(c):  # if any of these parameters is missing, use directly the field 'measure' without transform
-        elon = m0
-#                 temp = np.asarray(t0)
-    else:
-        if not 'reference' in P:  # raise error if 'reference' is missing
-            raise TypeError('uid: {}, _id: {}: missing the field reference'.format(X['uid'], X['_id']))
-
-        mb = np.abs(m0) > 0
-        rb = np.abs(r0) == 0
-
-        if np.any(np.logical_and(rb, mb)):  # if mesure/ref are not defined
-            raise ValueError('uid: {}, _id: {}, reference value close to zero.'.format(X['uid'], X['_id']))
-
-        v0 = np.zeros(len(P))
-        v0[~rb] = m0[~rb]/r0[~rb]
-        v0[rb] = m0[rb]  # on the entries that reference==0 we use 'measure' directly
-
-        # a, b, c = X['parama'], X['paramb'], X['paramc']
-        elon = (a*v0**2 + b*v0 + c)/1000 - 2
-#                 temp = raw2celsuis(t0)
-
+    # transform of 'temperature'
     temp = _raw2celsuis(t0)
+
+    # transform of 'measure'
+    a, b, c = X['parama'], X['paramb'], X['paramc']
+    v0 = m0/r0
+    elon = (a*v0**2 + b*v0 + c)/1000 - 2
+
+#     # Old version: abandonned for simplification
+#     # Singular case:  check parameters
+#     a = np.nan if (not 'parama' in X) else X['parama']
+#     b = np.nan if (not 'paramb' in X) else X['paramb']
+#     c = np.nan if (not 'paramc' in X) else X['paramc']
+
+#     if np.isnan(a) or np.isnan(b) or np.isnan(c):  # if any of these parameters is missing, use directly the field 'measure' without transform
+#         elon = m0
+# #                 temp = np.asarray(t0)
+#     else:
+#         if not 'reference' in P:  # raise error if 'reference' is missing
+#             raise TypeError('location: {}, _id: {}: missing the field reference'.format(X['location'], X['_id']))
+
+#         mb = np.abs(m0) > 0
+#         rb = np.abs(r0) == 0
+
+#         if np.any(np.logical_and(rb, mb)):  # if mesure/ref are not defined
+#             raise ValueError('location: {}, _id: {}, reference value close to zero.'.format(X['location'], X['_id']))
+
+#         v0 = np.zeros(len(P))
+#         v0[~rb] = m0[~rb]/r0[~rb]
+#         v0[rb] = m0[rb]  # on the entries that reference==0 we use 'measure' directly
+
+#         v0 = m0/r0
+#         elon = (a*v0**2 + b*v0 + c)/1000 - 2
 
     return pd.DataFrame({'ElongationTfm':elon, 'TemperatureTfm':temp, 'ElongationRaw':m0, 'TemperatureRaw':t0, 'Reference':r0, 'parama':a, 'paramb':b, 'paramc':c}, index=P['date']).sort_index()
 

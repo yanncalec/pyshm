@@ -15,21 +15,15 @@ import json
 import warnings
 
 import matplotlib
-matplotlib.use("macosx")
+matplotlib.use("agg")
+# matplotlib.use("macosx")
 import matplotlib.pyplot as plt
 # import matplotlib.colors as colors
 import mpld3
 plt.style.use('ggplot')
 
-def read_df(Results, key):
-    if not key in Results:
-        return None
-    else:
-        X = Results[key].copy()
-        if 'index' in X:
-            X.index = X['index']
-            del X['index']
-        return X
+from . import MyEncoder, load_results, compute_local_statistics, split_by_day, Hurstfunc, Options
+
 
 def location_plot(Tcpn, Ecpn, Eprd, Eerr, Essp, Astd, Apers, Atran, figdir, html=False):
     SNR = 10 * np.log10(Ecpn.var()/Eerr.var())  # Eprd.var()/Eerr.var() is not correct!
@@ -241,28 +235,18 @@ def plot_mean_dynamic_kernel(Krnl_mean, Kcov_mean, pval=0.9):
 
 
 __script__ = __doc__
-__example__ = []
+# __example__ = []
 
 def main():
-    # usage_msg = '%(prog)s <infile> [options]'
+    usage_msg = '%(prog)s <infile> [options]'
     # parser = argparse.ArgumentParser(description=__script__, usage=usage_msg)
     parser = argparse.ArgumentParser(description=__script__,
-                                    formatter_class=argparse.RawDescriptionHelpFormatter,
+                                    formatter_class=argparse.RawDescriptionHelpFormatter,)
                                     #  epilog=__warning__ + "\n\n" +
-                                    epilog = __example__)#,add_help=False)
+                                    # epilog = __example__)#,add_help=False)
 
     parser.add_argument('infile', help='directory of the local OSMOS database')
-
-    # parser.add_argument('-p', '--PID', dest='PID', type=str, default=None, help='project Key ID to be processed (by default all projects presented on the remote server will be processed)', metavar='integer')
-    # parser.add_argument('--info', dest='info', action='store_true', default=False, help='save the list of available projects')
-    # parser.add_argument('-s', '--sflag', dest='sflag', action='store_true', default=False, help="remove synchronization error")
-    # parser.add_argument('-o', '--oflag', dest='oflag', action='store_true', default=False, help="remove outliers")
-    # parser.add_argument('-t', '--tflag', dest='tflag', action='store_true', default=False, help="apply the preprocessing on the temperature data")
-    # parser.add_argument('-j', '--jflag', dest='jflag', action='store_true', default=False, help="detect jumps in the deformation data")
-    # parser.add_argument('-n', dest='nh', action='store', type=int, default=12, help="gaps (in hour) larger than this value will be marked as nan (default 12)", metavar="int")
-    # parser.add_argument('--port', dest='port', action='store', type=int, default=27017, help="port of local MongoDB (default=27017)", metavar="int")
-    # parser.add_argument("--json", dest="json", action="store_true", default=False, help="save results in json format")
-    parser.add_argument('--html', dest='html', action='store_true', default=False, help='Generate plots in html format (in addition of pdf format).')
+    parser.add_argument('--html', dest='html', action='store_true', default=False, help='generate plots in html format (in addition of pdf format).')
     # parser.add_argument("--plot", dest="plot", action="store_true", default=False, help="plot data")
     parser.add_argument('-v', '--verbose', dest='verbose', action='count', default=0, help='print messages')
 
@@ -286,17 +270,17 @@ def main():
     #     toto = json.load(fp)
     # options = Options(**toto)
 
-    Tcpn = read_df(Results, 'Temperature')
-    Ecpn = read_df(Results, 'Elongation')
-    Eprd = read_df(Results, 'Prediction')
+    Tcpn = load_results(Results, 'Temperature')
+    Ecpn = load_results(Results, 'Elongation')
+    Eprd = load_results(Results, 'Prediction')
     Eerr = Ecpn - Eprd
-    Virt = read_df(Results, 'Virtual sensors')
-    Essp = read_df(Results, 'Subspace projection')
+    Virt = load_results(Results, 'Virtual sensors')
+    Essp = load_results(Results, 'Subspace projection')
     Eerp = Eerr - Essp
     Scof = np.asarray(Results['PCA coefficients']).T
-    Atran = read_df(Results, 'Transient')
-    Astd = read_df(Results, 'Std')
-    Apers = read_df(Results, 'Persistence')
+    Atran = load_results(Results, 'Transient')
+    Astd = load_results(Results, 'Std')
+    Apers = load_results(Results, 'Persistence')
 
     Locations = list(Tcpn.keys())
 
@@ -307,13 +291,13 @@ def main():
 
     location_plot(Tcpn, Ecpn, Eprd, Eerr, Essp, Astd, Apers, Atran, options.figdir, html=options.html)
 
-    # Amat_ls = read_df(Results, "Flattened kernel")
-    # Amatc_ls = read_df(Results, "Flattened reduced kernel")
+    # Amat_ls = load_results(Results, "Flattened kernel")
+    # Amatc_ls = load_results(Results, "Flattened reduced kernel")
 
-    # Amat_bm = read_df(Results, "Mean kernel")
-    # Acov_bm = read_df(Results, "Mean var. of kernel")
-    # Amatc_bm = read_df(Results, "Mean reduced kernel")
-    # Acovc_bm = read_df(Results, "Mean var. of reduced kernel")
+    # Amat_bm = load_results(Results, "Mean kernel")
+    # Acov_bm = load_results(Results, "Mean var. of kernel")
+    # Amatc_bm = load_results(Results, "Mean reduced kernel")
+    # Acovc_bm = load_results(Results, "Mean var. of reduced kernel")
 
     # if Amat_bm is not None and Amatc_bm is not None:
     #     # BM model

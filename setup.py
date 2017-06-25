@@ -184,12 +184,13 @@ setup(
     # pip to create the appropriate form of executable for the target platform.
     entry_points={
         'console_scripts': [
-            'osmos_remote_download = pyshm.script_remote.Download_data:main',
-            'osmos_remote_preprocess = pyshm.script_remote.Preprocess_static:main',
-            'osmos_remote_deconv = pyshm.script_remote.Deconv_static:main',
-            # 'osmos_thermal = pyshm.script.Thermal_static:main',
-            'osmos_remote_postprocess = pyshm.script_remote.Postprocess_static:main',
-            'osmos_remote_plot = pyshm.script_remote.Plot:main',
+            # 'osmos_remote_download = pyshm.script_remote.Download_data:main',
+            # 'osmos_remote_preprocess = pyshm.script_remote.Preprocess_static:main',
+            # 'osmos_remote_deconv = pyshm.script_remote.Deconv_static:main',
+            # # 'osmos_remote_thermal = pyshm.script.Thermal_static:main',
+            # 'osmos_remote_postprocess = pyshm.script_remote.Postprocess_static:main',
+            # 'osmos_remote_plot = pyshm.script_remote.Plot:main',
+            'osmos_deconv = pyshm.script.Deconv_static:main',
             'osmos_analyse = pyshm.script.Analyse_static:main',
             'osmos_plot = pyshm.script.Plot_static:main',
         ],

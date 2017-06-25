@@ -1,10 +1,10 @@
 #!/usr/bin/env python
 
-"""Analysis of static data using the vectorial deconvolution model.
+"""Deconvolution of static data using the vectorial model.
 """
 
 import sys, os, argparse
-from pyshm.script import static_data_analysis_template, examplestyle, warningstyle, load_result_of_analysis
+from pyshm.script_remote import static_data_analysis_template, examplestyle, warningstyle, load_result_of_analysis
 
 # class Options:
 #     verbose=False  # print message

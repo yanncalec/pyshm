@@ -57,7 +57,7 @@ def _dgp_cov_matrix(Nt, snr2=100, clen2=1):
 
 ########## Interfaces ##########
 
-def deconv(Y0, X0, lag, pord=1, dord=0, snr2=None, clen2=None, dspl=1, sidx=0, Ntrn=None, vthresh=0., cdim=None, Nexp=0, vreg=0, pflag=False):
+def deconv(Y0, X0, lag, pord=1, dord=0, snr2=None, clen2=None, dspl=1, sidx=0, Ntrn=None, vthresh=0., cdim=None, Nexp=0, vreg=0, poly=False):
     """Deconvolution of multivariate time series using a vectorial FIR filter by GLS.
 
     We look for the kernel convolution matrices A of the model
@@ -142,7 +142,7 @@ def deconv(Y0, X0, lag, pord=1, dord=0, snr2=None, clen2=None, dspl=1, sidx=0, N
     #     Amat[np.abs(Amat)<kthresh] = 0
 
     # prediction
-    if pflag: # with the polynomial trend, ie: return A*X(t) + Q(t)
+    if poly: # with the polynomial trend, ie: return A*X(t) + P(t)
         Xcmv0 = Tools.mts_cumview(X0, lag)
         # polynominal trend
         Xcmv1 = Tools.dpvander(np.arange(Nt)/Nt, pord, 0)
@@ -165,7 +165,7 @@ def deconv(Y0, X0, lag, pord=1, dord=0, snr2=None, clen2=None, dspl=1, sidx=0, N
     return Yprd, Amat, Amatc
 
 
-def deconv_bm(Y0, X0, lag, pord=1, dord=0, sigmaq2=10**-6, sigmar2=10**-3, x0=0., p0=1., smooth=False, sidx=0, Ntrn=None, vthresh=0., cdim=None, pflag=False, rescale=True):
+def deconv_bm(Y0, X0, lag, pord=1, dord=0, sigmaq2=10**-6, sigmar2=10**-3, x0=0., p0=1., smooth=False, sidx=0, Ntrn=None, vthresh=0., cdim=None, poly=False, rescale=True):
     """Deconvolution of multivariate time series using a vectorial FIR filter by Kalman filter.
 
     Args:
@@ -222,7 +222,7 @@ def deconv_bm(Y0, X0, lag, pord=1, dord=0, sigmaq2=10**-6, sigmar2=10**-3, x0=0.
     #
     # # method 2: apply kernel matrices on differentiated inputs
     # then re-integrate. This method is theoretically exact but numerically unstable when dord>=2
-    if pflag:
+    if poly:
         Xcmv = Xvar
         Yflt = np.zeros_like(Y0)
         for t in range(Nt):
