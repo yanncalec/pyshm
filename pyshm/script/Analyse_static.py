@@ -42,7 +42,7 @@ def main():
     mongo_opts.add_argument("--port", dest="port", type=int, default=27017, help="port of the MongoDB server (default=27017).", metavar="integer")
 
     cluster_opts = parser.add_argument_group("Clustering and low rank approximation options")
-    cluster_opts.add_argument("--cthresh", dest="cthresh", type=float, default=1e-2, help="percentage of tolerable information loss in clustering (default=1e-2).", metavar="float")
+    cluster_opts.add_argument("--cthresh", dest="cthresh", type=float, default=1e-1, help="percentage of tolerable information loss in clustering (default=1e-1).", metavar="float")
     cluster_opts.add_argument("--cdim", dest="cdim", type=int, default=None, help="reduced dimension in low rank approximation. If not set it will be determined automatically from the value of cthresh, otherwise cthresh will be ignored (default=None).", metavar="integer")
 
     alarm_opts = parser.add_argument_group("Alarm options")
@@ -128,6 +128,7 @@ def main():
     toto = Models.ssproj(X0, cdim=options.cdim, vthresh=options.cthresh, corrflag=False, dflag=False)
     U, S = toto[1][0], toto[1][1]  # basis and sv
     cdim = toto[2]  # dimension of the subspace
+    # print(X0.shape, np.sum(np.isnan(X0)))
     Scof = (U @ np.diag(np.sqrt(S/S[0])))  # Scof[:,:3] are the first 3 PCA coefficients, division by S[0]: normalization
     Scof_pd = pd.DataFrame(Scof.T, columns=options.alocs)
 

@@ -106,6 +106,7 @@ def retrieve_data(hostname, port, pid, locations, dbname='OSMOS', clname='Liris_
         X0 = []
         try:
             X0 = mongo_load_static(collection, loc, dflag=True)
+            # print(X0)
         except Exception as msg:
             print(msg)
             continue
@@ -122,7 +123,16 @@ def retrieve_data(hostname, port, pid, locations, dbname='OSMOS', clname='Liris_
             # if not redundant:  # remove redundant information
             #     del Sdata[loc]['parama'], Sdata[loc]['paramb'], Sdata[loc]['paramc']
 
-            Parms[loc] = tuple(np.asarray(Sdata[loc][['parama', 'paramb', 'paramc']]).mean(axis=0))
+            # there may be nans in the parameters
+            fofo = np.asarray(Sdata[loc][['parama']]); nidx = np.isnan(fofo)
+            parama = np.mean(fofo[~nidx])
+            fofo = np.asarray(Sdata[loc][['paramb']]); nidx = np.isnan(fofo)
+            paramb = np.mean(fofo[~nidx])
+            fofo = np.asarray(Sdata[loc][['paramc']]); nidx = np.isnan(fofo)
+            paramc = np.mean(fofo[~nidx])
+            # Parms[loc] = tuple(np.asarray(Sdata[loc][['parama', 'paramb', 'paramc']]).mean(axis=0))
+            Parms[loc] = (parama, paramb, paramc)
+
     return Sdata, Parms
 
 
@@ -952,11 +962,8 @@ def raw2millimeters(V, R, Parms):
         a pandas DataFrame of elongation in millimeters
     """
     toto={}
-    X = V/R
     for loc in V.keys():  # iteration on V since Parms may contain more locations
-        # print(loc)
-        # print(X[loc].head())
-        x = np.asarray(X[loc])
+        x = np.asarray(V[loc]/R[loc])
         a,b,c = Parms[loc]
         toto[loc] = (a*x**2 + b*x + c)/1000 - 2
     return pd.DataFrame(toto, index=V.index)
@@ -984,6 +991,7 @@ def _mongo_transform(X):
 
     # transform of 'measure'
     a, b, c = X['parama'], X['paramb'], X['paramc']
+    # print(a,b,c)
     v0 = m0/r0
     elon = (a*v0**2 + b*v0 + c)/1000 - 2
 

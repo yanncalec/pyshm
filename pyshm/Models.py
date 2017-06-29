@@ -50,7 +50,7 @@ def _dgp_cov_matrix(Nt, snr2=100, clen2=1):
     """
     f = lambda x: np.exp(-(x**2)/clen2)
     C = snr2 * (2*f(np.arange(Nt)) - f(1+np.arange(Nt))- f(-1+np.arange(Nt)))
-    C[0] += 2  # noise, add a small number to regularize
+    C[0] += 2 + 0.01  # noise, add a small number to regularize
     C[1] += -1
     return scipy.linalg.toeplitz(C)
 

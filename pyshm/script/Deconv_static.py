@@ -98,11 +98,11 @@ def main():
         tdata_opts.add_argument("--Ntrn", dest="Ntrn", type=int, default=6*30*24, help="length of the training data (default=24*30*6).", metavar="integer")
 
         model_opts = parser.add_argument_group("Model options")
-        model_opts.add_argument("--lag", dest="lag", type=int, default=24, help="length of the convolution kernel (default=24).", metavar="integer")
+        model_opts.add_argument("--lag", dest="lag", type=int, default=6, help="length of the convolution kernel (default=6).", metavar="integer")
         model_opts.add_argument("--pord", dest="pord", type=int, default=1, help="order of non-thermal polynomial process (default=1 for trend or all component, 0 for raw or seasonal component).", metavar="integer")
         model_opts.add_argument("--dord", dest="dord", type=int, default=0, help="order of derivative (default=1 for trend or all component, 0 for raw or seasonal component).", metavar="integer")
         model_opts.add_argument("--poly", dest="poly", action="store_true", default=False, help="add polynomial trends in the prediction (default=no polynomial trend). This option should be set in case of raw component.")
-        model_opts.add_argument("--vthresh", dest="vthresh", type=float, default=10**-3, help="percentage of tolerable information loss for dimension reduction. The principle dimensions corresponding to the percentage of (1-vthresh) will be kept, i.e. 1 percent of information is discarded if vthresh=0.01. No dimension reduction if set to 0 (default=0.001).", metavar="float")
+        model_opts.add_argument("--vthresh", dest="vthresh", type=float, default=0, help="percentage of tolerable information loss for dimension reduction. The principle dimensions corresponding to the percentage of (1-vthresh) will be kept, i.e. 1 percent of information is discarded if vthresh=0.01. No dimension reduction if set to 0 (default=0.).", metavar="float")
         # dimr_opts.add_argument("--corrflag", dest="corrflag", action="store_true", default=False, help="use correlation matrix in dimension reduction.")
 
     # for parser in [parser_ls, parser_bm, parser_analysis]:
@@ -138,7 +138,8 @@ def main():
     options.infile_info = os.path.join(options.projdir, "liris_info.xlsx")  # input LIRIS information file of the project
 
     options.func_name = __file__[__file__.rfind(os.path.sep)+1 : __file__.rfind('.')]
-    outdir0 = os.path.join(options.projdir, options.func_name, "model[{}]_component[{}]_alocs[{}]_[from_{}_to_{}]_Ntrn[{}]_lag[{}]_pord[{}]_dord[{}]_poly[{}]_vthresh[{:.1e}]".format(options.subcommand.upper(), options.component.upper(), options.alocs, options.time0, options.time1, options.Ntrn, options.lag, options.pord, options.dord, options.poly, options.vthresh))
+    outdir0 = os.path.join(options.projdir, options.func_name, "model[{}]_component[{}]_alocs[{}]_[from_{}_to_{}]_Ntrn[{}]_lag[{}]_pord[{}]_dord[{}]_poly[{}]_vthresh[{:.1e}]".format(options.subcommand.upper(), options.component.upper(),options.alocs, options.time0, options.time1, options.Ntrn, options.lag, options.pord, options.dord, options.poly, options.vthresh))
+    outdir0 = outdir0.replace(' ', '')
 
     if options.subcommand.upper() == 'LS':
         # options.outdir = outdir0 + "_clen2[{}]_snr2[{:.1e}]_dspl[{}]_Nexp[{}]_vreg[{}]".format(options.clen2, options.snr2, options.dspl, options.Nexp, options.vreg)  # output directory
@@ -158,9 +159,17 @@ def main():
         Sdata0 = pd.read_excel(options.infile_data, sheetname=None)  # <=== this may be time consuming
         Sdata = {}
         Parms = {}
-        for loc, val in Sdata0.items():
-            Sdata[int(loc)] = val
-            Parms[int(loc)] = tuple(np.asarray(val[['parama', 'paramb', 'paramc']]).mean(axis=0))
+        for loc0, val in Sdata0.items():
+            loc = int(loc0)
+            Sdata[loc] = val
+            fofo = np.asarray(Sdata[loc][['parama']]); nidx = np.isnan(fofo)
+            parama = np.mean(fofo[~nidx])
+            fofo = np.asarray(Sdata[loc][['paramb']]); nidx = np.isnan(fofo)
+            paramb = np.mean(fofo[~nidx])
+            fofo = np.asarray(Sdata[loc][['paramc']]); nidx = np.isnan(fofo)
+            paramc = np.mean(fofo[~nidx])
+            Parms[loc] = (parama, paramb, paramc)
+            # Parms[loc] = tuple(np.asarray(Sdata[loc][['parama', 'paramb', 'paramc']]).mean(axis=0))
         # Parms = {int(val['locationkeyid']):tuple(val[['parama', 'paramb', 'paramc']]) for n, val in LIRIS.iterrows() if val['locationkeyid'] in Locations}  # parameters of transformation of raw measurements
 
     else:  # otherwise update local data base
@@ -202,7 +211,6 @@ def main():
 
             LIRIS = LIRIS_info[LIRIS_info['pid']==options.pid].reset_index(drop=True)  # info of this pid
             Sdata, Parms = pyshm.OSMOS.retrieve_data(options.hostname, options.port, options.pid, [int(v) for v in LIRIS['locationkeyid']], options.dbname, options.clname)
-
             if len(Sdata) > 0:
                 # save data in an Excel file
                 writer = pd.ExcelWriter(options.infile_data)
@@ -217,6 +225,7 @@ def main():
             else:
                 raise Exception("No data found in MongoDB for the project {}.".format(options.pid))
 
+    # print(Parms)
     Locations = list(Sdata.keys())  # All locations with data
     Locations.sort()
     UIDs = {int(u['locationkeyid']): u['uid'] for n,u in LIRIS.iterrows()}  # loc -> uid mapping
@@ -274,6 +283,8 @@ def main():
         Ecpn_tfm = Eobs_tfm
         Xvar = np.asarray(Tobs_raw).T  # input variable
         Yvar = np.asarray(Eobs_raw).T  # output variable
+        # print(Xvar.shape, np.sum(np.isnan(Xvar)))
+        # print(Yvar.shape, np.sum(np.isnan(Yvar)))
     else:  # work on transformed data
         # Decomposition of data
         if options.component.upper() in ['SEASONAL', 'TREND']:
@@ -320,7 +331,7 @@ def main():
     if options.subcommand.upper() == "LS":
         # a first run to determinate the value of cdim
         yprd0, amat0, amatc0 = pyshm.Models.deconv(Yvar, Xvar, options.lag, dord=options.dord, pord=options.pord, snr2=options.snr2, clen2=options.clen2, dspl=options.dspl, sidx=options.sidx, Ntrn=options.Ntrn, vthresh=options.vthresh, Nexp=options.Nexp, poly=options.poly)
-
+        # print(amat0, amatc0)
         # a second run for a range of cdim
         yprd_list = [yprd0]
         amat_list = [amat0]
@@ -332,6 +343,7 @@ def main():
             amat_list.append(amat0)
         # take the mean to reduce the high freqency anomalies
         Yprd = np.asarray(yprd_list).mean(axis=0)
+        # print(Yprd.shape, np.sum(np.isnan(Yprd)))
         Amat = np.asarray(amat_list).mean(axis=0)
         # Amatc = np.asarray(amatc_list).mean(axis=0)
 
@@ -379,6 +391,9 @@ def main():
         # transformed value
         # print(Parms)
         Eprd_tfm = pyshm.OSMOS.raw2millimeters(Eprd_raw, Ref, Parms)
+        # print(Eprd_raw.head())
+        # print(Eprd_tfm.head())
+        # print(Ref, Parms)
     else:
         Eprd_tfm = pd.DataFrame(Yprd.T, columns=options.alocs, index=Time_idx)
     Eerr_tfm = Ecpn_tfm - Eprd_tfm  # residual
