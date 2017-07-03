@@ -155,7 +155,7 @@ class MxDeconv_LS(MxDeconv):
         Xtrn, Ytrn = Xvar[:,tidx0:tidx1:self.dspl], Yvar[:,tidx0:tidx1:self.dspl]  # down-sampling of training data
         # GLS matrix
         if self.W0 is not None:
-            Winv = la.inv(self.W0[tidx0:tidx1:dspl,:][:,tidx0:tidx1:dspl])
+            Winv = la.inv(self.W0[tidx0:tidx1:self.dspl,:][:,tidx0:tidx1:self.dspl])
         else:
             Winv = None # equivalent to np.eye(Xtrn.shape[1])
 
