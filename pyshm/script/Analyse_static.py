@@ -44,6 +44,8 @@ def main():
     cluster_opts = parser.add_argument_group("Clustering and low rank approximation options")
     cluster_opts.add_argument("--cthresh", dest="cthresh", type=float, default=1e-1, help="percentage of tolerable information loss in clustering (default=1e-1).", metavar="float")
     cluster_opts.add_argument("--cdim", dest="cdim", type=int, default=None, help="reduced dimension in low rank approximation. If not set it will be determined automatically from the value of cthresh, otherwise cthresh will be ignored (default=None).", metavar="integer")
+    cluster_opts.add_argument("--corrflag", dest="corrflag", action="store_true", help="use the correlation matrix in the computation of PCA.")
+    cluster_opts.add_argument("--dflag", dest="dflag", action="store_true", help="take derivative of data in the computation of PCA.")
 
     alarm_opts = parser.add_argument_group("Alarm options")
     # alarm_opts.add_argument("--mwmethod", dest="mwmethod", type=str, default="mean", help="type of moving window estimator for decomposition of component: mean (default), median.", metavar="string")
@@ -64,9 +66,12 @@ def main():
     options.dbname = 'OSMOS'  # name of database
     options.clname = 'Liris_Measure'  # name of collection
     options.snl_threshold = 0.1  # threshold for the energy of the seasonal component
-    options.thresh_tran_lowlevel = 2.  # threshold for transient alarms
+    options.thresh_tran_lowlevel = 2  # threshold for transient alarms, smaller for higher sensitivity
     options.mwsize_tran_rng = (24, 240)  # range of size of moving window for alarms of transient events
-    options.max_thermal_delay = 6  # maximum value of thermal delay, >= 1
+    options.max_thermal_delay = 6  # maximum value of thermal delay, >= 1 for transient events, smaller for more precise alarm location
+    # options.thresh_tran_lowlevel = 2.  # threshold for transient alarms
+    # options.mwsize_tran_rng = (24, 240)  # range of size of moving window for alarms of transient events
+    # options.max_thermal_delay = 6  # maximum value of thermal delay, >= 1 for transient events
     options.mwsize_std_rng = (24*5, 24*10)   # range of size of moving window for alarms of std
     options.hurst_sclrng = (0, 8)  # scale range of wavelet coefficient for alarms of persistence or Hurst exponent
     options.hurst_mwsize = 24*10   # size of moving window for alarms of persistence or Hurst exponent
@@ -89,7 +94,7 @@ def main():
 
     idx = options.infile.rfind(os.path.sep)
     options.indir = options.infile[:idx]
-    options.outdir = os.path.join(options.infile[:idx], "cthresh[{}]_cdim[{}]_transient[{:.1e}]_std[{:.1e}]_pers[{:.1e}]".format(options.cthresh, options.cdim, options.thresh_tran_alarm, options.thresh_std_alarm, options.thresh_pers_alarm))
+    options.outdir = os.path.join(options.infile[:idx], "cthresh[{}]_cdim[{}]_corrflag[{}]_dflag_[{}]_transient[{:.1e}]_std[{:.1e}]_pers[{:.1e}]".format(options.cthresh, options.cdim, options.corrflag, options.dflag, options.thresh_tran_alarm, options.thresh_std_alarm, options.thresh_pers_alarm))
 
     try:
         os.makedirs(options.outdir)
@@ -125,7 +130,7 @@ def main():
     ##### Step 1. Clustering of sensors and low rank approximation #####
     # projection of the residual onto a low dimension subspace
     X0 = np.asarray(Eerr_tfm).T
-    toto = Models.ssproj(X0, cdim=options.cdim, vthresh=options.cthresh, corrflag=False, dflag=False)
+    toto = Models.ssproj(X0, cdim=options.cdim, vthresh=options.cthresh, corrflag=options.corrflag, dflag=options.dflag)
     U, S = toto[1][0], toto[1][1]  # basis and sv
     cdim = toto[2]  # dimension of the subspace
     # print(X0.shape, np.sum(np.isnan(X0)))

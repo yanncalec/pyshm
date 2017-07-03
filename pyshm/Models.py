@@ -5,8 +5,10 @@ import numpy as np
 import numpy.linalg as la
 from numpy import ma
 import scipy.linalg
+from functools import wraps
 import numbers
 import warnings
+import pandas as pd
 
 from . import Tools, Stat, Kalman
 # from pyshm import Tools, Stat, Kalman
@@ -55,9 +57,169 @@ def _dgp_cov_matrix(Nt, snr2=100, clen2=1):
     return scipy.linalg.toeplitz(C)
 
 
-########## Interfaces ##########
+########## Class Interfaces to deconv and deconv_bm (not implemented) ##########
 
-def deconv(Y0, X0, lag, pord=1, dord=0, snr2=None, clen2=None, dspl=1, sidx=0, Ntrn=None, vthresh=0., cdim=None, Nexp=0, vreg=0, poly=False):
+# def func_mparms_mean(func):
+#     """
+#     """
+
+#     @wraps(func)
+#     def newfunc(*args, prng=(1,24*3), **kwargs):
+#         Y0 = []
+#         A0 = []
+#         C0 = []
+#         for p in range(*prng):
+#             y, a, c = func(*args, dsp=p, **kwargs)
+#             Y0.append(y)
+#             A0.append(a)
+#             C0.append(c)
+#         Y = np.asarray(Y0)
+#         A = np.asarray(A0)
+#         C = np.asarray(C0)
+#         return np.mean(Y, axis=0), np.mean(A, axis=0), np.mean(C, axis=0)
+#     return newfunc
+
+class MxDeconv:
+    def __init__(self, Y0, X0, lag, pord, dord, smth):
+        assert X0.ndim == Y0.ndim == 2
+        assert X0.shape[1] == Y0.shape[1]
+        assert pord >= dord
+        assert lag >= 1
+
+        self.X0 = X0.copy()
+        self.Y0 = Y0.copy()
+        self.lag = lag
+        self.Nt = self.X0.shape[1]  # length of observations
+
+        self.pord = pord
+        self.dord = dord
+        self.smth = smth
+
+    def _prepare_data(self, mwsize=24, kzord=1, method='mean', causal=False):
+        # smoothed derivatives
+        if self.dord>0:
+            if self.smth:
+                X1 = Tools.KZ_filter(self.X0.T, mwsize, kzord, method=method, causal=causal).T
+                Y1 = Tools.KZ_filter(self.Y0.T, mwsize, kzord, method=method, causal=causal).T
+            else:
+                X1, Y1 = self.X0, self.Y0
+
+            dX = np.zeros_like(self.X0) * np.nan; dX[:,self.dord:] = np.diff(X1, self.dord, axis=-1)
+            dY = np.zeros_like(self.Y0) * np.nan; dY[:,self.dord:] = np.diff(Y1, self.dord, axis=-1)
+            # or:
+            # dX = Tools.sdiff(X0, dsp, axis=-1)
+            # dY = Tools.sdiff(Y0, dsp, axis=-1)
+        else:
+            dX, dY = self.X0, self.Y0
+
+        Xvar0 = Tools.mts_cumview(dX, self.lag)  # cumulative view for convolution
+        # polynominal trend
+        Xvar1 = Tools.dpvander(np.arange(self.Nt)/self.Nt, self.pord, self.dord)  # division by Nt: normalization for numerical stability
+        Xvar = np.vstack([Xvar0, Xvar1[:-1,:]])  #[:-1,:] removes the constant trend which may cause non-invertible covariance matrix. If the constant trend is kept here, Yprd at the end of this function should be modified accordingly like this:
+        # Amat0 = Amat[:, :-(pord-dord+1)] ...
+        Yvar = dY
+
+        return Xvar, Yvar
+
+    def fit(self):
+        pass
+
+    def predict(self):
+        pass
+
+
+class MxDeconv_LS(MxDeconv):
+    def __init__(self, Y0, X0, lag, pord=1, dord=0, smth=False, snr2=None, clen2=None, dspl=1):
+        super().__init__(Y0, X0, lag, pord, dord, smth)
+        self.snr2 = snr2
+        self.clen2 = clen2
+        self.dspl = dspl
+
+        # construct the covariance matrix of the Gaussian process
+        if self.clen2 is not None and self.clen2 > 0 and self.snr2 is not None and self.snr2 >= 0:
+            if self.dord > 0:
+                self.W0 = _dgp_cov_matrix(self.Nt, self.snr2, self.clen2)
+                if self.dord > 1:
+                    warnings.warn("The current implementation of the GP covariance matrix is not exact for dord>1.")
+            else:
+                self.W0 = _gp_cov_matrix(self.Nt, self.snr2, self.clen2)
+        else:
+            self.W0 = None # invalid parameters, equivalent to W0=np.eye(Nt)
+
+    def fit(self, sidx=0, Ntrn=None, vthresh=0., cdim=None, Nexp=0, vreg=1e-8):
+
+        Xvar, Yvar = self._prepare_data(mwsize=24, kzord=1)
+
+        # training data
+        (tidx0, tidx1), _ = Stat.training_period(self.Nt, tidx0=sidx, Ntrn=Ntrn)  # valid training period
+        Xtrn, Ytrn = Xvar[:,tidx0:tidx1:self.dspl], Yvar[:,tidx0:tidx1:self.dspl]  # down-sampling of training data
+        # GLS matrix
+        if self.W0 is not None:
+            Winv = la.inv(self.W0[tidx0:tidx1:dspl,:][:,tidx0:tidx1:dspl])
+        else:
+            Winv = None # equivalent to np.eye(Xtrn.shape[1])
+
+        # prepare regressor
+        regressor = Stat.dim_reduction_pca(Stat.random_subset(Stat.multi_linear_regression))
+        # regressor = dim_reduction_cca(random_subset(multi_linear_regression))  # not recommended
+        # regressor = random_subset(dim_reduction_pca(multi_linear_regression))
+        # regressor = dim_reduction_pca(random_subset(percentile_subset(multi_linear_regression)))
+
+        # regresion
+        # method ("mean" or "median") used in random_subset is active only when Nexp>0
+        # corrflag=False
+        # corrflag (bool): if True use the correlation matrix for dimension reduction
+        # ((Amat,Amatc), Cvec, _, _), toto = regressor(Ytrn, Xtrn, Winv, vthresh=vthresh, corrflag=corrflag, Nexp=Nexp, method="mean")
+        (Amat, Cvec, *_), (Amatc, *_) = regressor(Ytrn, Xtrn, Winv, vthresh=vthresh, cdim=cdim, Nexp=Nexp, method="mean", vreg=vreg)
+        Err = Yvar - (Amat @ Xvar + Cvec)  # differential residual
+        Sig = Stat.cov(Err, Err)  # covariance matrix
+        # if kthresh>0:
+        #     Amat[np.abs(Amat)<kthresh] = 0
+
+        # kernel matrix corresponding to the external input, without the polynomial trend
+        Amat0 = Amat[:, :Amat.shape[-1]-(self.pord-self.dord)]
+
+        self._fit_results = {'tidx0':tidx0, 'tidx1':tidx1, 'vthresh':vthresh, 'cdim':cdim, 'Nexp':Nexp, 'vreg':vreg, 'Amat':Amat, 'Cvec':Cvec, 'Err':Err, 'Sig':Sig, 'Amat0':Amat0}
+        # self._fit_results = (Amat, Cvec, Amat0, Err, Sig)
+
+        return self._fit_results
+
+    def predict(self, Yvar=None, Xvar=None, polytrend=False):
+        if Yvar is None:
+            Yvar = self.Y0
+        if Xvar is None:
+            Xvar = self.X0
+
+        assert Xvar.shape[1] == Yvar.shape[1]
+        assert Xvar.shape[0] == self.X0.shape[0] and Yvar.shape[0] == self.Y0.shape[0]
+
+        # prediction
+        Xcmv0 = Tools.mts_cumview(Xvar, self.lag)
+        if polytrend: # with the polynomial trend, ie: return A*X(t) + P(t)
+            Amat, Cvec = self._fit_results['Amat'], self._fit_results['Cvec']
+            Xcmv1 = Tools.dpvander(np.arange(self.Nt)/self.Nt, self.pord, 0)  # polynominal trend
+            Xcmv = np.vstack([Xcmv0, Xcmv1[:(self.pord-self.dord+1),:]])  # input with polynomial trend
+            # Xcmv[np.isnan(Xcmv)] = 0  # Remove nans will introduce large values around discontinuties
+            Yflt = np.hstack([Amat, Cvec]) @ Xcmv
+        else: # without the polynomial trend, ie, return A*X(t)
+            Amat0 = self._fit_results['Amat0']
+            Yflt = Amat0 @ Xcmv0
+
+        Yprd = Yflt
+        # if self.dord > 0:
+        #     Yprd = Yflt - Tools.polyprojection(Yflt, deg=self.dord-1, axis=-1)  # projection \Psi^\dagger \Psi
+        # else:
+        #     Yprd = Yflt
+
+        Err = Yvar - Yprd
+        Sig = Stat.cov(Err, Err)  # covariance matrix
+        self._predict_results = {'Yprd':Yprd, 'Err':Err, 'Sig':Sig}
+
+        return self._predict_results
+
+
+##########  functional implementation #########
+def deconv(Y0, X0, lag, pord=1, dord=0, snr2=None, clen2=None, dspl=1, sidx=0, Ntrn=None, vthresh=0., cdim=None, Nexp=0, vreg=1e-8, polytrend=False, smth=True):
     """Deconvolution of multivariate time series using a vectorial FIR filter by GLS.
 
     We look for the kernel convolution matrices A of the model
@@ -80,6 +242,9 @@ def deconv(Y0, X0, lag, pord=1, dord=0, snr2=None, clen2=None, dspl=1, sidx=0, N
         vthresh (float): relative threshold in dimension reduction, between 0 and 1. The dimension corresponding to the percentage of (1-vthresh) is kept, i.e. 10 percent of information is dropped if vthresh=0.1. No reduction if set to 0.
         cdim (int): desired dimension, same effect as vthresh, no reduction if set to None.
         Nexp (int): number of experiments in the RANSAC algorithm, no RANSAC if Nexp==0
+        vreg (floag):
+        polytrend (bool):
+        smth (bool):
     Returns:
         Yprd, Amat, Amatc: prediction, estimation of the matrix and estimation of the dimension-reduced matrix
     """
@@ -92,8 +257,20 @@ def deconv(Y0, X0, lag, pord=1, dord=0, snr2=None, clen2=None, dspl=1, sidx=0, N
     Nt = X0.shape[1]  # length of observations
 
     # external input
-    dX = np.zeros_like(X0) * np.nan; dX[:,dord:] = np.diff(X0, dord, axis=-1)
-    dY = np.zeros_like(Y0) * np.nan; dY[:,dord:] = np.diff(Y0, dord, axis=-1)
+    if dord>0:
+        if smth:
+            X1 = Tools.KZ_filter(X0.T, 24, 1, method="mean", causal=False).T
+            Y1 = Tools.KZ_filter(Y0.T, 24, 1, method="mean", causal=False).T
+        else:
+            X1, Y1 = X0, Y0
+
+        dX = np.zeros_like(X0) * np.nan; dX[:,dord:] = np.diff(X0, dord, axis=-1)
+        dY = np.zeros_like(Y0) * np.nan; dY[:,dord:] = np.diff(Y0, dord, axis=-1)
+        # or:
+        # dX = Tools.sdiff(X0, dsp, axis=-1)
+        # dY = Tools.sdiff(Y0, dsp, axis=-1)
+    else:
+        dX, dY = X0, Y0
 
     Xvar0 = Tools.mts_cumview(dX, lag)  # cumulative view for convolution
     # polynominal trend
@@ -142,30 +319,28 @@ def deconv(Y0, X0, lag, pord=1, dord=0, snr2=None, clen2=None, dspl=1, sidx=0, N
     #     Amat[np.abs(Amat)<kthresh] = 0
 
     # prediction
-    if poly: # with the polynomial trend, ie: return A*X(t) + P(t)
-        Xcmv0 = Tools.mts_cumview(X0, lag)
+    Xcmv0 = Tools.mts_cumview(X0, lag)
+    if polytrend: # with the polynomial trend, ie: return A*X(t) + P(t)
         # polynominal trend
         Xcmv1 = Tools.dpvander(np.arange(Nt)/Nt, pord, 0)
         Xcmv = np.vstack([Xcmv0, Xcmv1[:(pord-dord+1),:]])
         # Xcmv[np.isnan(Xcmv)] = 0  # Remove nans will introduce large values around discontinuties
         Yflt = np.hstack([Amat, Cvec]) @ Xcmv
-        # Yflt0 = Amat0 @ Xcmv0 + Cvec
-        if dord > 0:
-            Yprd = Yflt - Tools.polyprojection(Yflt, deg=dord-1, axis=-1)  # projection \Psi^\dagger \Psi
-        else:
-            Yprd = Yflt
     else: # without the polynomial trend, ie: return A*X(t)
-        Xcmv0 = Tools.mts_cumview(X0, lag)
         Yflt = Amat0 @ Xcmv0
-        if dord > 0:
-            Yprd = Yflt - Tools.polyprojection(Yflt, deg=dord-1, axis=-1)  # projection \Psi^\dagger \Psi
-        else:
-            Yprd = Yflt
+
+    Yprd = Yflt
+    # if dord > 0:
+    #     Yprd = Yflt - Tools.polyprojection(Yflt, deg=dord-1, axis=-1)  # projection \Psi^\dagger \Psi
+    # else:
+    #     Yprd = Yflt
 
     return Yprd, Amat, Amatc
 
+# deconv = func_mparms_mean(_deconv)
 
-def deconv_bm(Y0, X0, lag, pord=1, dord=0, sigmaq2=10**-6, sigmar2=10**-3, x0=0., p0=1., smooth=False, sidx=0, Ntrn=None, vthresh=0., cdim=None, poly=False, rescale=True):
+
+def deconv_bm(Y0, X0, lag, pord=1, dord=0, sigmaq2=10**-6, sigmar2=10**-3, x0=0., p0=1., smooth=False, sidx=0, Ntrn=None, vthresh=0., cdim=None, polytrend=False, rescale=True, smth=True):
     """Deconvolution of multivariate time series using a vectorial FIR filter by Kalman filter.
 
     Args:
@@ -193,9 +368,21 @@ def deconv_bm(Y0, X0, lag, pord=1, dord=0, sigmaq2=10**-6, sigmar2=10**-3, x0=0.
 
     Nt = X0.shape[1]  # length of observations
 
-    # the part of external input
-    dX = np.zeros_like(X0) * np.nan; dX[:,dord:] = np.diff(X0, dord, axis=-1)
-    dY = np.zeros_like(Y0) * np.nan; dY[:,dord:] = np.diff(Y0, dord, axis=-1)
+    # external input
+    if dord>0:
+        if smth:
+            X1 = Tools.KZ_filter(X0.T, 24, 1, method="mean", causal=False).T
+            Y1 = Tools.KZ_filter(Y0.T, 24, 1, method="mean", causal=False).T
+        else:
+            X1, Y1 = X0, Y0
+
+        dX = np.zeros_like(X0) * np.nan; dX[:,dord:] = np.diff(X0, dord, axis=-1)
+        dY = np.zeros_like(Y0) * np.nan; dY[:,dord:] = np.diff(Y0, dord, axis=-1)
+        # or:
+        # dX = Tools.sdiff(X0, dsp, axis=-1)
+        # dY = Tools.sdiff(Y0, dsp, axis=-1)
+    else:
+        dX, dY = X0, Y0
 
     Xvar0 = Tools.mts_cumview(dX, lag)  # cumulative view for convolution
     # the part of polynominal trend
@@ -222,36 +409,36 @@ def deconv_bm(Y0, X0, lag, pord=1, dord=0, sigmaq2=10**-6, sigmar2=10**-3, x0=0.
     #
     # # method 2: apply kernel matrices on differentiated inputs
     # then re-integrate. This method is theoretically exact but numerically unstable when dord>=2
-    if poly:
+    if polytrend:
         Xcmv = Xvar
         Yflt = np.zeros_like(Y0)
         for t in range(Nt):
             Yflt[:,t] = Amat[t,] @ Xcmv[:,t] + Cvec[t]
-        # integration to obtain the final result
-        if dord > 0:
-            Yflt[np.isnan(Yflt)] = 0
-            for n in range(dord):
-                Yflt = np.cumsum(Yflt,axis=-1)
-            # Remark: Yprd has shape Y0.shape[1]*Nt
-            Yprd = Yflt - Tools.polyprojection(Yflt, deg=dord-1, axis=-1)  # prediction: projection \Psi^\dagger \Psi
-        else:
-            Yprd = Yflt
+        # # integration to obtain the final result
+        # if dord > 0:
+        #     Yflt[np.isnan(Yflt)] = 0
+        #     for n in range(dord):
+        #         Yflt = np.cumsum(Yflt,axis=-1)
+        #     # Remark: Yprd has shape Y0.shape[1]*Nt
+        #     Yprd = Yflt - Tools.polyprojection(Yflt, deg=dord-1, axis=-1)  # prediction: projection \Psi^\dagger \Psi
+        # else:
+        #     Yprd = Yflt
     else:
         Xcmv = Xvar0
         Yflt = np.zeros_like(Y0)
         for t in range(Nt):
             # Yflt[:,t] = Amat0[t,] @ Xcmv[:,t] + Cvec[t]
             Yflt[:,t] = Amat0[t,] @ Xcmv[:,t]
-        # integration to obtain the final result
-        if dord > 0:
-            Yflt[np.isnan(Yflt)] = 0
-            for n in range(dord):
-                Yflt = np.cumsum(Yflt,axis=-1)
-            # Remark: Yprd has shape Y0.shape[1]*Nt
-            Yprd = Yflt - Tools.polyprojection(Yflt, deg=dord-1, axis=-1)  # prediction: projection \Psi^\dagger \Psi
-        else:
-            # Yprd = Yflt + Cvec.T # transpose since the axis 0 in Cvec is time
-            Yprd = Yflt
+    # integration to obtain the final result
+    if dord > 0:
+        Yflt[np.isnan(Yflt)] = 0
+        for n in range(dord):
+            Yflt = np.cumsum(Yflt,axis=-1)
+
+    # Remark: Yprd has shape Y0.shape[1]*Nt
+    # Yprd = Yflt - Tools.polyprojection(Yflt, deg=dord-1, axis=-1)  # prediction: projection \Psi^\dagger \Psi
+    Yprd = Yflt
+
     # # covariance matrix: abandonned
     # Ycov = np.zeros((Nt,Y0.shape[0],Y0.shape[0]))
     # for t in range(Nt):

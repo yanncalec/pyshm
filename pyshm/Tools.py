@@ -244,31 +244,41 @@ def mts_cumview(X, N):
     return Y
 
 
-def KZ_filter(X0, mwsize, kzord, method="mean", causal=True):
+def KZ_filter(X0, mwsize, kzord, method="mean", min_periods=None, causal=True):
     """Kolmogorov Zurbenko filter for pandas data sheet.
 
     The KZ filter is nothing but the recursive application of the moving average, it has length (mwsize-1)*k+1. Here we extend KZ filter using the moving median.
 
     Args:
-        X0: input pandas DataFrame
+        X0 (pandas DataFrame/Series or 1d/2d numpy array): input, if X0 is a numpy array then its first axis corresponds to time (ie, each row is an observation)
         mwsize (int): size of moving window
         kzord (int): order of KZ filter
         method (str): "mean" or "median"
         causal (bool): if True use the causal filter
-
     Returns:
         Filtered datasheet
     """
-    X = X0.copy()
+    if isinstance(X0, np.ndarray):
+        assert X0.ndim <= 2
+        X = pd.DataFrame(X0).copy()
+    elif isinstance(X0, pd.DataFrame) or isinstance(X0, pd.Series):
+        X = X0.copy()
+    else:
+        raise TypeError('Input must be pandas DataFrame/Series or a numpy array')
+
     for n in range(kzord):
         if method == "mean":
-            X = pd.Series.rolling(X, mwsize, min_periods=1, center=not causal).mean()
+            X = pd.Series.rolling(X, mwsize, min_periods=min_periods, center=not causal).mean()
         elif method == "median":
-            X = pd.Series.rolling(X, mwsize, min_periods=1, center=not causal).median()
+            X = pd.Series.rolling(X, mwsize, min_periods=min_periods, center=not causal).median()
 
+    # print(X.shape, X0.shape)
     X[np.isnan(X0)] = np.nan
 
-    return X
+    if isinstance(X0, np.ndarray):
+        return np.asarray(X)
+    elif isinstance(X0, pd.DataFrame) or isinstance(X0, pd.Series):
+        return X
 
 
 UL_filter = lambda X,wsize: U_filter(L_filter(X,wsize),wsize)
@@ -408,7 +418,7 @@ def roll_fill(X0, shift, val=np.nan, axis=-1):
 
 
 def sdiff(X, p, axis=-1):
-    """Seasonal difference :math:`X[t] - X[t-p]`.
+    """Seasonal difference :math:`(X[t] - X[t-p])/p`.
 
     Args:
         X (nd array): the last dimension is the time axis
@@ -424,7 +434,7 @@ def sdiff(X, p, axis=-1):
         slc[axis] = slice(0,p)
         dX[slc] = np.nan  # remove the boundary effect
 
-        return dX
+        return dX/p
 
 
 #### Interpolation and projection ####
@@ -853,16 +863,16 @@ cummax = along_axis(cumop(nan_safe(np.max)))
 cummin = along_axis(cumop(nan_safe(np.min)))
 cumstd = along_axis(cumop(nan_safe(np.std)))
 
-#### Plot ####
-def plot(X0, T=None, mask=None):
-    assert X0.ndim == 1
-    X = X0.copy()
-    if mask is not None:
-        X[mask] = np.nan
-    from matplotlib import pyplot as plt
-    fig, axa = plt.subplots(1,1,figsize=(20,5))
-    if T is not None:
-        axa.plot(T, X)
-    else:
-        axa.plot(X)
-    return fig, axa
+# #### Plot ####
+# def plot(X0, T=None, mask=None):
+#     assert X0.ndim == 1
+#     X = X0.copy()
+#     if mask is not None:
+#         X[mask] = np.nan
+#     from matplotlib import pyplot as plt
+#     fig, axa = plt.subplots(1,1,figsize=(20,5))
+#     if T is not None:
+#         axa.plot(T, X)
+#     else:
+#         axa.plot(X)
+#     return fig, axa

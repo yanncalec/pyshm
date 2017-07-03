@@ -101,8 +101,9 @@ def main():
         model_opts.add_argument("--lag", dest="lag", type=int, default=6, help="length of the convolution kernel (default=6).", metavar="integer")
         model_opts.add_argument("--pord", dest="pord", type=int, default=1, help="order of non-thermal polynomial process (default=1 for trend or all component, 0 for raw or seasonal component).", metavar="integer")
         model_opts.add_argument("--dord", dest="dord", type=int, default=0, help="order of derivative (default=1 for trend or all component, 0 for raw or seasonal component).", metavar="integer")
-        model_opts.add_argument("--poly", dest="poly", action="store_true", default=False, help="add polynomial trends in the prediction (default=no polynomial trend). This option should be set in case of raw component.")
+        model_opts.add_argument("--polytrend", dest="polytrend", action="store_true", default=False, help="add polynomial trend in the prediction (default=no polynomial trend). This option should be set for the raw component.")
         model_opts.add_argument("--vthresh", dest="vthresh", type=float, default=0, help="percentage of tolerable information loss for dimension reduction. The principle dimensions corresponding to the percentage of (1-vthresh) will be kept, i.e. 1 percent of information is discarded if vthresh=0.01. No dimension reduction if set to 0 (default=0.).", metavar="float")
+        model_opts.add_argument("--nosmooth", dest="nosmooth", action="store_true", default=False, help="do not smooth the input data for all components.")
         # dimr_opts.add_argument("--corrflag", dest="corrflag", action="store_true", default=False, help="use correlation matrix in dimension reduction.")
 
     # for parser in [parser_ls, parser_bm, parser_analysis]:
@@ -113,7 +114,7 @@ def main():
     regressor_opts.add_argument("--snr2", dest="snr2", type=float, default=10**4, help="squared signal-to-noise ratio of the Gaussian polynomial process (default=1e4), no effect if clen2 is not set.", metavar="float")
     regressor_opts.add_argument("--clen2", dest="clen2", type=float, default=None, help="squared correlation length of the Gaussian polynomial process (default=None, use deterministic polynomial process). Setting this parameter may slow down the training.", metavar="float")
     regressor_opts.add_argument("--dspl", dest="dspl", type=int, default=1, help="down-sampling rate of training data for acceleration on large training dataset (default=1, no down-sampling).", metavar="integer")
-    # regressor_opts.add_argument("--vreg", dest="vreg", type=float, default=0, help="factor of regularization (default=0).", metavar="float")
+    regressor_opts.add_argument("--vreg", dest="vreg", type=float, default=0, help="factor of regularization (default=0).", metavar="float")
 
     kalman_opts = parser_bm.add_argument_group("Kalman filter options (bm model only)")
     kalman_opts.add_argument("--sigmaq2", dest="sigmaq2", type=float, default=10**-6, help="variance of transition noise (default=1e-6).", metavar="float")
@@ -138,12 +139,11 @@ def main():
     options.infile_info = os.path.join(options.projdir, "liris_info.xlsx")  # input LIRIS information file of the project
 
     options.func_name = __file__[__file__.rfind(os.path.sep)+1 : __file__.rfind('.')]
-    outdir0 = os.path.join(options.projdir, options.func_name, "model[{}]_component[{}]_alocs[{}]_[from_{}_to_{}]_Ntrn[{}]_lag[{}]_pord[{}]_dord[{}]_poly[{}]_vthresh[{:.1e}]".format(options.subcommand.upper(), options.component.upper(),options.alocs, options.time0, options.time1, options.Ntrn, options.lag, options.pord, options.dord, options.poly, options.vthresh))
+    outdir0 = os.path.join(options.projdir, options.func_name, "model[{}]_component[{}]_alocs[{}]_[from_{}_to_{}]_Ntrn[{}]_lag[{}]_pord[{}]_dord[{}]_polytrend[{}]_vthresh[{:.1e}]_nosmooth[{}]".format(options.subcommand.upper(), options.component.upper(),options.alocs, options.time0, options.time1, options.Ntrn, options.lag, options.pord, options.dord, options.polytrend, options.vthresh, options.nosmooth))
     outdir0 = outdir0.replace(' ', '')
 
     if options.subcommand.upper() == 'LS':
-        # options.outdir = outdir0 + "_clen2[{}]_snr2[{:.1e}]_dspl[{}]_Nexp[{}]_vreg[{}]".format(options.clen2, options.snr2, options.dspl, options.Nexp, options.vreg)  # output directory
-        options.outdir = outdir0 + "_clen2[{}]_snr2[{:.1e}]_dspl[{}]_Nexp[{}]".format(options.clen2, options.snr2, options.dspl, options.Nexp)  # output directory
+        options.outdir = outdir0 + "_clen2[{}]_snr2[{:.1e}]_dspl[{}]_Nexp[{}]_vreg[{}]".format(options.clen2, options.snr2, options.dspl, options.Nexp, options.vreg)  # output directory
     else:
         options.outdir = outdir0 + "_sigmaq2[{:.1e}]_sigmar2[{:.1e}]_rescale[{}]".format(options.sigmaq2, options.sigmar2, options.rescale)
 
@@ -329,23 +329,35 @@ def main():
             print("\tTraining period: from {} to {}, about {} days.".format(Time_idx[options.trnperiod[0]], Time_idx[options.trnperiod[1]-1], int((options.trnperiod[1]-options.trnperiod[0])/24)))
 
     if options.subcommand.upper() == "LS":
-        # a first run to determinate the value of cdim
-        yprd0, amat0, amatc0 = pyshm.Models.deconv(Yvar, Xvar, options.lag, dord=options.dord, pord=options.pord, snr2=options.snr2, clen2=options.clen2, dspl=options.dspl, sidx=options.sidx, Ntrn=options.Ntrn, vthresh=options.vthresh, Nexp=options.Nexp, poly=options.poly)
-        # print(amat0, amatc0)
-        # a second run for a range of cdim
-        yprd_list = [yprd0]
-        amat_list = [amat0]
-        # amatc_list = [amatc0]
-        for cdim, _ in zip(range(amatc0.shape[1], amat0.shape[1]), range(10)):
-            # print("second run with cdim={}".format(cdim))
-            yprd0, amat0, amatc0 = pyshm.Models.deconv(Yvar, Xvar, options.lag, dord=options.dord, pord=options.pord, snr2=options.snr2, clen2=options.clen2, dspl=options.dspl, sidx=options.sidx, Ntrn=options.Ntrn, vthresh=0, cdim=cdim, Nexp=options.Nexp, poly=options.poly)
-            yprd_list.append(yprd0)
-            amat_list.append(amat0)
-        # take the mean to reduce the high freqency anomalies
-        Yprd = np.asarray(yprd_list).mean(axis=0)
-        # print(Yprd.shape, np.sum(np.isnan(Yprd)))
-        Amat = np.asarray(amat_list).mean(axis=0)
-        # Amatc = np.asarray(amatc_list).mean(axis=0)
+        smthflag = options.component.upper()=="ALL" and not options.nosmooth
+
+        # OOP implementation
+        # dcm = pyshm.Models.mts_deconv_ls(Yvar, Xvar, options.lag, pord=options.pord, dord=options.dord, smth=smthflag, snr2=options.snr2, clen2=options.clen2, dspl=options.dspl)
+        # res_fit = dcm.fit(sidx=options.sidx, Ntrn=options.Ntrn, vthresh=options.vthresh, Nexp=options.Nexp, vreg=options.vreg)
+        # res_prd = dcm.predict(polytrend=options.polytrend)
+        # Yprd = res_prd['Yprd']
+
+        # functional implementation
+        Yprd, Amat, Amatc = pyshm.Models.deconv(Yvar, Xvar, options.lag, dord=options.dord, pord=options.pord, snr2=options.snr2, clen2=options.clen2, dspl=options.dspl, sidx=options.sidx, Ntrn=options.Ntrn, vthresh=options.vthresh, Nexp=options.Nexp, vreg=options.vreg, polytrend=options.polytrend, smth=smthflag)
+
+        # ## a smoother estimation using the mean multiple regressions with different cdim
+        # # a first run to determinate the value of cdim
+        # yprd0, amat0, amatc0 = pyshm.Models.deconv(Yvar, Xvar, options.lag, dord=options.dord, pord=options.pord, snr2=options.snr2, clen2=options.clen2, dspl=options.dspl, sidx=options.sidx, Ntrn=options.Ntrn, vthresh=options.vthresh, Nexp=options.Nexp, vreg=options.vreg, poly=options.poly)
+        # # print(amat0, amatc0)
+        # # a second run for a range of cdim
+        # yprd_list = [yprd0]
+        # amat_list = [amat0]
+        # # amatc_list = [amatc0]
+        # for cdim, _ in zip(range(amatc0.shape[1], amat0.shape[1]), range(10)):
+        #     # print("second run with cdim={}".format(cdim))
+        #     yprd0, amat0, amatc0 = pyshm.Models.deconv(Yvar, Xvar, options.lag, dord=options.dord, pord=options.pord, snr2=options.snr2, clen2=options.clen2, dspl=options.dspl, sidx=options.sidx, Ntrn=options.Ntrn, vthresh=0, cdim=cdim, Nexp=options.Nexp, poly=options.poly)
+        #     yprd_list.append(yprd0)
+        #     amat_list.append(amat0)
+        # # take the mean to reduce the high freqency anomalies
+        # Yprd = np.asarray(yprd_list).mean(axis=0)
+        # # print(Yprd.shape, np.sum(np.isnan(Yprd)))
+        # Amat = np.asarray(amat_list).mean(axis=0)
+        # # Amatc = np.asarray(amatc_list).mean(axis=0)
 
     elif options.subcommand.upper() == "BM":
         smoothflag = options.kalman.upper() == "SMOOTHER"
@@ -366,7 +378,7 @@ def main():
             if options.verbose:
                 print("\tProcessing the location {}...".format(aloc))
 
-            yprd0, (amat0,acov0), (amatc0,acovc0) = pyshm.Models.deconv_bm(Yvar[[n],:], Xvar, options.lag, dord=options.dord, pord=options.pord, sigmaq2=options.sigmaq2, sigmar2=options.sigmar2, x0=0., p0=1., smooth=smoothflag, sidx=options.sidx, Ntrn=options.Ntrn, vthresh=options.vthresh, rescale=options.rescale)
+            yprd0, (amat0,acov0), (amatc0,acovc0) = pyshm.Models.deconv_bm(Yvar[[n],:], Xvar, options.lag, dord=options.dord, pord=options.pord, sigmaq2=options.sigmaq2, sigmar2=options.sigmar2, x0=0., p0=1., smooth=smoothflag, sidx=options.sidx, Ntrn=options.Ntrn, vthresh=options.vthresh, rescale=options.rescale, polytrend=options.polytrend, smth=smoothflag)
 
             Yprd0.append(np.asarray(yprd0))
             Amat0.append(np.asarray(amat0))

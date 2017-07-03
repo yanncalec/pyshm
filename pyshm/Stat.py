@@ -888,6 +888,7 @@ def multi_linear_regression_bm(Y, X, sigmaq2, sigmar2, x0=0., p0=1., smooth=Fals
     # return Ka, Cvec, Err, Sig
 
 
+
 ###### Alarms #####
 def detect_periods_of_instability(hexp, hthresh, hgap=0, mask=None):
     # hexp = np.asarray(hexp0).copy(); hexp[np.isnan(hexp0)] = -np.inf
