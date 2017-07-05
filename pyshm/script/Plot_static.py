@@ -314,8 +314,10 @@ def main():
     #         plt.close(fig)
 
 
-    if len(Locations) > 2:
+    if len(Locations) > 1:
         clustering_plot_2d(Scof, Locations, options.figdir)
+
+    if len(Locations) > 2:
         clustering_plot_3d(Scof, Locations, options.figdir)
 
     if options.verbose:

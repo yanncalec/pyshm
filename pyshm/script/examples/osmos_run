@@ -1,32 +1,41 @@
 #!/bin/bash
+
 trap "exit" INT
 
-if [ $# -lt 2 ]; then
+if [ $# -lt 3 ]; then
     echo "Template script for OSMOS project" >&2
-    echo "Usage: $0 pid configuration_file" >&2
+    echo "Usage: $0 pid dbdir configuration_file" >&2
     exit 1
 else
-    . "$2"  # source configuration file
+    . "$3"  # source configuration file
     if [ ! $?==0 ]; then  # error in reading configuration file
         exit 1
     fi
 fi
 
+PID=$1  # Project key ID
+DBDIR=$2  # Local database directory
+# OUTDIR=$DBDIR  # Output directory
+# PROJDIR=$DBDIR/$PID  # Project directory
 
-DBDIR=$HOME/Osmos/Data/Local  # Local database directory
-# OUTDIR=$HOME/Osmos/Local/Outputs  # Output directory
-# PROJDIR=$DBDIR/$(printf "%03d" $PID)  # Project directory
-# FIGDIR=$OUTDIR/$(printf "%03d" $PID)  # Figure and results directory
-LOGFILE=/tmp/osmos_log.txt  # user defined temporary file
+# random temporary file
+export LC_ALL=C  # this is necessary for tr to work on binary file
+LOGFILE=/tmp/$(cat /dev/random | tr -cd 'a-f0-9' | head -c 32)  # or /dev/urandom
 
-# if [ ! -d $OUTDIR ]; then
-#     echo "Creat the output directory $OUTDIR"
-#     mkdir $OUTDIR
-# fi
+# echo $PID
+# echo $DBDIR
+# echo $OUTDIR
 
-########## Deconvolution, analysis and plot ##########
+if [ ! -d $OUTDIR ]; then
+    echo "Creat the output directory $OUTDIR"
+    mkdir $OUTDIR
+fi
+
+########## Deconvolution, Analysis and Plot ##########
 # options for deconvolution
 opts_deconv=""
+if [ ! -z $HOSTNAME ]; then opts_deconv+=" --hostname $HOSTNAME"; fi
+if [ ! -z $PORT ]; then opts_deconv+=" --port $PORT"; fi
 if [ ! -z $ALOCS ]; then opts_deconv+=" --alocs $ALOCS"; fi
 if [ ! -z $TIME0 ]; then opts_deconv+=" --time0 $TIME0"; fi
 if [ ! -z $TIME1 ]; then opts_deconv+=" --time1 $TIME1"; fi
@@ -75,10 +84,13 @@ for SUBCOMMAND in ${SUBCOMMANDS[@]}; do
             if [ ! -z $KALMAN ]; then opts_deconv+=" --kalman $KALMAN"; fi
         fi
 
-        echo "-----------------------------------------------------"
-        # cmd="osmos_deconv $SUBCOMMAND $INFILE $OUTDIR $opts --component $COMPONENT -v"
-        cmd='osmos_deconv "$SUBCOMMAND" "$1" "$DBDIR" $opts_deconv --component "$COMPONENT" -v'
-        # echo $cmd  # double-quoted variables not expanded
+        echo "Temporary log file $LOGFILE"
+        echo ""
+
+        echo "--------------------------------------------------------"
+        cmd="osmos_deconv $SUBCOMMAND $PID $DBDIR $opts_deconv --component $COMPONENT -v"
+        # cmd='osmos_deconv "$SUBCOMMAND" "$PID" "$DBDIR" $opts_deconv --component "$COMPONENT" -v'
+        echo $cmd  # double-quoted variables not expanded
         eval $cmd | tee $LOGFILE
         echo ""
         # if [ ! $?==0 ]; then
@@ -87,18 +99,28 @@ for SUBCOMMAND in ${SUBCOMMANDS[@]}; do
         # fi
         OUTFILE=$(tail -n 1 $LOGFILE)
 
-        # osmos_ANalyse "$OUTFILE" $opts_an -o -v
+        echo "--------------------------------------------------------"
+        # osmos_analyse "$OUTFILE" $opts_an -o -v
         # # cmd=$(printf "osmos_ANalyse %s %s -o -v" "${OUTFILE}" ${opts_an})  # doesn't work
-        cmd='osmos_analyse "$OUTFILE" $opts_an -v'
-        # echo $cmd
+        cmd="osmos_analyse $OUTFILE $opts_an -v"
+        # cmd='osmos_analyse "$OUTFILE" $opts_an -v'
+        echo $cmd
         eval "$cmd" | tee $LOGFILE
         echo ""
         OUTFILE=$(tail -n 1 $LOGFILE)
 
-        cmd='osmos_plot "$OUTFILE" $opts_pl -v'
+        echo "--------------------------------------------------------"
+        # cmd='osmos_plot "$OUTFILE" $opts_pl -v'
+        cmd="osmos_plot $OUTFILE $opts_pl -v"
         # cmd='osmos_plot analyse "$OUTFILE" $opts_pl --html -v'
-        # # echo "$cmd"
+        echo "$cmd"
         eval "$cmd"
         echo ""
+
+        echo "--------------------------------------------------------"
+        # TODO 1: osmos_analyse : read a folder name, not a file name
+        # TODO 2: zip the final output directory
     done
 done
+
+rm $LOGFILE

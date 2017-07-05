@@ -304,7 +304,7 @@ def main():
         clname_coeffs = options.clname + '_Sivienn_Coeffs'
 
         for collection in [db[clname_modified], db[clname_virtual], db[clname_coeffs]]:
-            collection.delete_many({'pid': str(options.pid), 'component': options.component.upper(), 'model':options.subcommand.upper()})
+            collection.delete_many({'project':options.pid, 'component': options.component.upper(), 'model':options.subcommand.upper()})
 
         # per sensor results
         collection = db[clname_modified]
@@ -327,10 +327,10 @@ def main():
             for x in split_by_day(xdic): # xdic_splitted:
                 datalist = [{**u, 'date':t.to_pydatetime()} for t,u in x.iterrows()]
                 t0 = x.index[0]
-                collection.insert_one({'pid': str(options.pid),
+                collection.insert_one({'project':options.pid,
                                         'model': options.subcommand.upper(),
                                         'component': options.component.upper(),
-                                        'location': str(loc),
+                                        'location': loc,
                                         # 'uid': UIDs[loc],
                                         'data': datalist,
                                         'start': t0.to_pydatetime(),
@@ -345,7 +345,7 @@ def main():
             for x in split_by_day(Virt):
                 t0 = x.index[0]
                 # y = np.asarray(x)  # 2d array
-                collection.insert_one({'pid': str(options.pid),
+                collection.insert_one({'project':options.pid,
                                         'model': options.subcommand.upper(),
                                         'component': options.component.upper(),
                                         # 'vid': n,
@@ -353,7 +353,7 @@ def main():
                                         'start': t0.to_pydatetime(),
                                         'year': t0.year, 'month': t0.month, 'day':t0.day})
                 # for n in range(vdim):
-                #     collection.insert_one({'pid': str(options.pid),
+                #     collection.insert_one({'project':options.pid,
                 #                             'component': options.component.upper(),
                 #                             'vid': n,
                 #                             'data': [{'date':t.to_pydatetime(), 'measure':u[n]}, for t,u in x.iterrows()],
@@ -363,10 +363,10 @@ def main():
         if Scof_pd is not None:
             collection = db[clname_coeffs]
             for loc in options.alocs:
-                collection.insert_one({'pid': str(options.pid),
+                collection.insert_one({'project':options.pid,
                                         'model': options.subcommand.upper(),
                                         'component': options.component.upper(),
-                                        'location': str(loc),
+                                        'location': loc,
                                         # 'uid': UIDs[loc],
                                         'data': list(Scof_pd[loc])})
 

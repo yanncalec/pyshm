@@ -79,11 +79,6 @@ def main():
         mongo_opts.add_argument("--update", dest="update", action="store_true", default=False, help="force updating local database.")
         mongo_opts.add_argument("--plot_only", dest="plot_only", action="store_true", default=False, help="plot original data and exit.")
 
-        store_opts = parser.add_argument_group("Store options")
-        store_opts.add_argument("--link", dest="link", type=str, default="https://client.osmos-group.com/server/application.php", help="store page link server (default='https://client.osmos-group.com/server/application.php').", metavar="string")
-        store_opts.add_argument("--login", dest="login", type=str, default="be@osmos-group.com", help="login to Store (default='be@osmos-group.com').", metavar="string")
-        store_opts.add_argument("--password", dest="password", type=str, default="osmos", help="password of the login (default='osmos').", metavar="string")
-
         wdata_opts = parser.add_argument_group("Data options")
         wdata_opts.add_argument("--alocs", dest="alocs", type=lambda s: [int(x) for x in s.split(',')], default=None, help="location ID of sensors to be analyzed (default=all sensors).", metavar="integers separated by \',\'")
         wdata_opts.add_argument("--time0", dest="time0", type=str, default=None, help="starting timestamp (default=the begining of data set).", metavar="YYYY-MM-DD")
@@ -99,8 +94,8 @@ def main():
 
         model_opts = parser.add_argument_group("Model options")
         model_opts.add_argument("--lag", dest="lag", type=int, default=6, help="length of the convolution kernel (default=6).", metavar="integer")
-        model_opts.add_argument("--pord", dest="pord", type=int, default=1, help="order of non-thermal polynomial process (default=1 for trend or all component, 0 for raw or seasonal component).", metavar="integer")
-        model_opts.add_argument("--dord", dest="dord", type=int, default=0, help="order of derivative (default=1 for trend or all component, 0 for raw or seasonal component).", metavar="integer")
+        model_opts.add_argument("--pord", dest="pord", type=int, default=1, help="order of non-thermal polynomial process (default=1). Recommend value is 1 for trend or all component and 0 for raw or seasonal component).", metavar="integer")
+        model_opts.add_argument("--dord", dest="dord", type=int, default=1, help="order of derivative (default=1). Recommend value is 1 for trend or all component and 0 for raw or seasonal component).", metavar="integer")
         model_opts.add_argument("--polytrend", dest="polytrend", action="store_true", default=False, help="add polynomial trend in the prediction (default=no polynomial trend). This option should be set for the raw component.")
         model_opts.add_argument("--vthresh", dest="vthresh", type=float, default=0, help="percentage of tolerable information loss for dimension reduction. The principle dimensions corresponding to the percentage of (1-vthresh) will be kept, i.e. 1 percent of information is discarded if vthresh=0.01. No dimension reduction if set to 0 (default=0.).", metavar="float")
         model_opts.add_argument("--nosmooth", dest="nosmooth", action="store_true", default=False, help="do not smooth the input data for all components.")
@@ -114,11 +109,11 @@ def main():
     regressor_opts.add_argument("--snr2", dest="snr2", type=float, default=10**4, help="squared signal-to-noise ratio of the Gaussian polynomial process (default=1e4), no effect if clen2 is not set.", metavar="float")
     regressor_opts.add_argument("--clen2", dest="clen2", type=float, default=None, help="squared correlation length of the Gaussian polynomial process (default=None, use deterministic polynomial process). Setting this parameter may slow down the training.", metavar="float")
     regressor_opts.add_argument("--dspl", dest="dspl", type=int, default=1, help="down-sampling rate of training data for acceleration on large training dataset (default=1, no down-sampling).", metavar="integer")
-    regressor_opts.add_argument("--vreg", dest="vreg", type=float, default=0, help="factor of regularization (default=0).", metavar="float")
+    regressor_opts.add_argument("--vreg", dest="vreg", type=float, default=1e-6, help="factor of regularization (default=1e-6).", metavar="float")
 
     kalman_opts = parser_bm.add_argument_group("Kalman filter options (bm model only)")
-    kalman_opts.add_argument("--sigmaq2", dest="sigmaq2", type=float, default=10**-6, help="variance of transition noise (default=1e-6).", metavar="float")
-    kalman_opts.add_argument("--sigmar2", dest="sigmar2", type=float, default=1e+3, help="variance of observation noise (default=1e+3).", metavar="float")
+    kalman_opts.add_argument("--sigmaq2", dest="sigmaq2", type=float, default=1e-6, help="variance of transition noise (default=1e-6).", metavar="float")
+    kalman_opts.add_argument("--sigmar2", dest="sigmar2", type=float, default=1e-4, help="variance of observation noise (default=1e-4).", metavar="float")
     kalman_opts.add_argument("--kalman", dest="kalman", type=str, default="smoother", help="method of estimation of Kalman filter: filter, smoother (default).", metavar="string")
     kalman_opts.add_argument("--rescale", dest="rescale", action="store_true", default=False, help="rescale the input and output variables to normalize the amplitude.")
 
