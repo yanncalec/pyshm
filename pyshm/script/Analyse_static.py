@@ -110,11 +110,11 @@ def main():
     options.component = algo_options.component
     options.subcommand = algo_options.subcommand
 
-    idx1 = [t for t,c in enumerate(options.indir) if c==os.path.sep]
-    options.infile_info = os.path.join(options.indir[:idx1[-2]], 'liris_info.xlsx')
-    LIRIS = pd.read_excel(options.infile_info)
+    # idx1 = [t for t,c in enumerate(options.indir) if c==os.path.sep]
+    # options.infile_info = os.path.join(options.indir[:idx1[-2]], 'liris_info.xlsx')
+    # LIRIS = pd.read_excel(options.infile_info)
     # LIRIS = LIRIS_info[LIRIS_info['pid']==options.pid].reset_index(drop=True)  # info of this pid
-    UIDs = {int(u['locationkeyid']): u['uid'] for n,u in LIRIS.iterrows()}  # loc -> uid mapping
+    # UIDs = {int(u['locationkeyid']): u['uid'] for n,u in LIRIS.iterrows()}  # loc -> uid mapping
     # print(UIDs)
 
     Tcpn_tfm = load_results(results, 'Temperature')
