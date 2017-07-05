@@ -136,7 +136,6 @@ def main():
 
     options.projdir = os.path.join(options.dbdir, str(options.pid))  # project directory
     options.infile_data = os.path.join(options.projdir, "preprocessed_static.xlsx")  # input data file of the project
-    options.infile_info = os.path.join(options.projdir, "liris_info.xlsx")  # input LIRIS information file of the project
 
     options.func_name = __file__[__file__.rfind(os.path.sep)+1 : __file__.rfind('.')]
     outdir0 = os.path.join(options.projdir, options.func_name, "model[{}]_component[{}]_alocs[{}]_[from_{}_to_{}]_Ntrn[{}]_lag[{}]_pord[{}]_dord[{}]_polytrend[{}]_vthresh[{:.1e}]_nosmooth[{}]".format(options.subcommand.upper(), options.component.upper(),options.alocs, options.time0, options.time1, options.Ntrn, options.lag, options.pord, options.dord, options.polytrend, options.vthresh, options.nosmooth))
@@ -147,15 +146,11 @@ def main():
     else:
         options.outdir = outdir0 + "_sigmaq2[{:.1e}]_sigmar2[{:.1e}]_rescale[{}]".format(options.sigmaq2, options.sigmar2, options.rescale)
 
-        # os.path.join(options.projdir, options.func_name, "model[{}]_component[{}]_alocs[{}]_[from_{}_to_{}]_Ntrn[{}]_lag[{}]_pord[{}]_dord[{}]_poly[{}]_vthresh[{}]_sigmaq2[{:.1e}]_sigmar2[{:.1e}]_rescale[{}]".format(options.subcommand.upper(), options.component.upper(), options.alocs, options.time0, options.time1, options.Ntrn, options.lag, options.pord, options.dord, options.poly, options.vthresh, options.sigmaq2, options.sigmar2, options.rescale))
-
-    if os.path.isfile(options.infile_data) and os.path.isfile(options.infile_info) and not options.update:  # if both files exist, use local database
+    if os.path.isfile(options.infile_data) and not options.update:  # use local database
         if options.verbose:
             # print(__seperator__)
             print("Loading data from local database...")
 
-        LIRIS_info = pd.read_excel(options.infile_info)  # info of all projects
-        LIRIS = LIRIS_info[LIRIS_info['pid']==options.pid].reset_index(drop=True)  # info of this pid
         Sdata0 = pd.read_excel(options.infile_data, sheetname=None)  # <=== this may be time consuming
         Sdata = {}
         Parms = {}
@@ -173,44 +168,12 @@ def main():
         # Parms = {int(val['locationkeyid']):tuple(val[['parama', 'paramb', 'paramc']]) for n, val in LIRIS.iterrows() if val['locationkeyid'] in Locations}  # parameters of transformation of raw measurements
 
     else:  # otherwise update local data base
-        # 1. Get LIRIS sensor information
-        if not os.path.isfile(options.infile_info) or options.update:
-            if options.verbose:
-                # print(__seperator__)
-                print("Retrieving information of LIRIS sensors of the project {}...".format(options.pid))
-
-            LIRIS_info_full = pyshm.OSMOS.retrieve_LIRIS_info([options.pid], link=options.link, login=options.login, password=options.password)
-            # LIRIS_info_full = pyshm.OSMOS.retrieve_LIRIS_info(list(range(1,500)))
-
-            if LIRIS_info_full is None:
-                raise ValueError("Failed to retrieve information of the project {} from server.".format(options.pid))
-            else:
-                try:
-                    os.makedirs(options.projdir)
-                    if options.verbose > 0:
-                        print("Create the project folder {}".format(options.projdir))
-                except Exception:
-                    pass
-
-            # save essential information in an Excel file
-            LIRIS_info = LIRIS_info_full[['pid', 'uid', 'locationkeyid', 'parama', 'paramb', 'paramc']]
-            # LIRIS_info = LIRIS_info_full[['pid', 'uid', 'locationkeyid']]
-            writer = pd.ExcelWriter(options.infile_info)
-            LIRIS_info.to_excel(writer)
-            writer.save()
-
-            if options.verbose:
-                print("Information saved in {}".format(options.infile_info))
-        else:
-            LIRIS_info = pd.read_excel(options.infile_info)
-
-        # 2. Get LIRIS data
+        # Get LIRIS data
         if not os.path.isfile(options.infile_data) or options.update:
             if options.verbose:
                 print("Retrieving data of the project {} from MongoDB...".format(options.pid))
 
-            LIRIS = LIRIS_info[LIRIS_info['pid']==options.pid].reset_index(drop=True)  # info of this pid
-            Sdata, Parms = pyshm.OSMOS.retrieve_data(options.hostname, options.port, options.pid, [int(v) for v in LIRIS['locationkeyid']], options.dbname, options.clname)
+            Sdata, Parms = pyshm.OSMOS.retrieve_data(options.hostname, options.port, options.pid, options.dbname, options.clname)
             if len(Sdata) > 0:
                 # save data in an Excel file
                 writer = pd.ExcelWriter(options.infile_data)
@@ -228,7 +191,7 @@ def main():
     # print(Parms)
     Locations = list(Sdata.keys())  # All locations with data
     Locations.sort()
-    UIDs = {int(u['locationkeyid']): u['uid'] for n,u in LIRIS.iterrows()}  # loc -> uid mapping
+    # UIDs = {int(u['locationkeyid']): u['uid'] for n,u in LIRIS.iterrows()}  # loc -> uid mapping
 
     if options.verbose:
         print("ID of available locations: {}".format(Locations))

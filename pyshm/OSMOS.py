@@ -81,13 +81,57 @@ def retrieve_LIRIS_info(PIDs, link="https://client.osmos-group.com/server/applic
     return LIRIS_info
 
 
-def retrieve_data(hostname, port, pid, locations, dbname='OSMOS', clname='Liris_Measure', redundant=True):
+def retrieve_data(hostname, port, pid, dbname='OSMOS', clname='Liris_Measure', redundant=True):
     """Retrieve data of a PID from MongoDB.
 
     Args:
         hostname (str): name of the MongoDB server
         port (int): port of the MongoDB server
         pid (int): project key ID
+        locations (list): list of locations associated to pid
+    Returns:
+        Sdata, Parms: a dictionary of pandas DataFrame and the parameters of transformation.
+    """
+    client = MongoClient(hostname, port)
+    # collection = client['OSMOS']['Liris_Measure']  # collection
+    collection = client[dbname][clname]  # collection
+
+    Sdata = {}  # dictionary of preprocessed static data
+    Parms = {}  # dictionary of parameters
+
+    X0 = mongo_load_static(collection, pid, dflag=True)
+
+    for loc, val in X0.items():
+#         Rtsx = pd.date_range(X0.index[0].ceil(rsp), X0.index[-1].floor(rsp), freq=rsp)
+#         Sdata[loc] = X0.resample('H').ffill().loc[Rtsx]
+        S, Rtsx, Ntsx = resampling_time_series(val)
+        Sdata[loc] = S.loc[Rtsx]
+        Sdata[loc].loc[Ntsx] = np.nan
+        toto = pd.Series(False,index=Rtsx); toto[Ntsx] = True
+        Sdata[loc]['Missing'] = toto  # a field indicating missing values
+
+        # if not redundant:  # remove redundant information
+        #     del Sdata[loc]['parama'], Sdata[loc]['paramb'], Sdata[loc]['paramc']
+
+        # there may be nans in the parameters
+        fofo = np.asarray(Sdata[loc][['parama']]); nidx = np.isnan(fofo)
+        parama = np.mean(fofo[~nidx])
+        fofo = np.asarray(Sdata[loc][['paramb']]); nidx = np.isnan(fofo)
+        paramb = np.mean(fofo[~nidx])
+        fofo = np.asarray(Sdata[loc][['paramc']]); nidx = np.isnan(fofo)
+        paramc = np.mean(fofo[~nidx])
+        # Parms[loc] = tuple(np.asarray(Sdata[loc][['parama', 'paramb', 'paramc']]).mean(axis=0))
+        Parms[loc] = (parama, paramb, paramc)
+
+    return Sdata, Parms
+
+
+def retrieve_data_store(hostname, port, locations, dbname='OSMOS', clname='Liris_Measure', redundant=True):
+    """Retrieve data of some locations from MongoDB.
+
+    Args:
+        hostname (str): name of the MongoDB server
+        port (int): port of the MongoDB server
         locations (list): list of locations associated to pid
     Returns:
         Sdata, Parms: a dictionary of pandas DataFrame and the parameters of transformation.
@@ -1024,7 +1068,48 @@ def _mongo_transform(X):
     return pd.DataFrame({'ElongationTfm':elon, 'TemperatureTfm':temp, 'ElongationRaw':m0, 'TemperatureRaw':t0, 'Reference':r0, 'parama':a, 'paramb':b, 'paramc':c}, index=P['date']).sort_index()
 
 
-def mongo_load_static(C, loc, dflag=True):
+def mongo_load_static(C, pid, dflag=True):
+    """Extract raw static data from a collection of MongoDB and apply transformation
+
+    The transformation applied on temperature and on elongation are defined in the function :func:raw2celsuis and :func:raw2millimeters.
+
+    Args:
+        C: collection of MongoDB
+        pid (int): project ID
+        dflag (bool): if True remove duplicate entries
+    Return:
+        a dictionary with location id as key and Pandas DataFrame as value. Each DataFrame has 'date' as index, and contains the fields 'Temperature' (in celsuis) and 'Elongation' (in millimeter).
+    """
+    # get raw data
+    rawdata = C.find({'project':pid, 'type':1})
+    # normally, rawdata is a list-like structure and rawdata[0] contains the fields
+    # `['data', 'uid', 'location', 'paramb', 'start', 'paramc', 'year', 'day', 'parama', 'month', '_id', 'newdoc', 'type']`
+    # but singular cases may exist and must be handled.
+
+    L = {}
+    for X in rawdata:
+        if len(X['data'])>0: # Singular case: check that data exist
+            try:
+                p0 = _mongo_transform(X)
+            except Exception as msg:
+                print('mongo_load_static(): {}'.format(msg))
+                continue
+            loc = int(X['location'])  # location id
+            if loc not in L:  # new sensor
+                L[loc] = []
+            # p0['newdoc'] = X['newdoc']
+            # p0['location'] = X['location']
+            L[loc].append(p0)
+    #         P = pd.concat(L).sort_values('date').reset_index(drop=True)
+    P = {}
+    for loc, val in L.items():
+        toto = pd.concat(val).sort_index() #.reset_index(drop=True)
+        # remove duplicate time index
+        P[loc] = toto.groupby(['date']).agg(np.mean) if dflag else toto
+
+    return P
+
+def mongo_load_static_store(C, loc, dflag=True):
     """Extract raw static data from a collection of MongoDB and apply transformation
 
     The transformation applied on temperature and on elongation are defined in the function :func:raw2celsuis and :func:raw2millimeters.
