@@ -1,2 +1,1 @@
-from . import OSMOS, Tools, Stat, Models, Kalman
-from . import script
+from . import Tools, Stat, Models, Kalman

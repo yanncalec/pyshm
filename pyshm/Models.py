@@ -274,7 +274,9 @@ def deconv(Y0, X0, lag, pord=1, dord=0, snr2=None, clen2=None, dspl=1, sidx=0, N
 
     Xvar0 = Tools.mts_cumview(dX, lag)  # cumulative view for convolution
     # polynominal trend
-    Xvar1 = Tools.dpvander(np.arange(Nt)/Nt, pord, dord)  # division by Nt: normalization for numerical stability
+    # division by Nt and multiplication by 10: normalization for numerical stability
+    # *100 or *1 numerically works worse
+    Xvar1 = Tools.dpvander(np.arange(Nt)/Nt*10, pord, dord)
     Xvar = np.vstack([Xvar0, Xvar1[:-1,:]])  #[:-1,:] removes the constant trend which may cause non-invertible covariance matrix. If the constant trend is kept here, Yprd at the end of this function should be modified accordingly like this:
     # Amat0 = Amat[:, :-(pord-dord+1)] ...
     Yvar = dY
@@ -386,7 +388,7 @@ def deconv_bm(Y0, X0, lag, pord=1, dord=0, sigmaq2=10**-6, sigmar2=10**-3, x0=0.
 
     Xvar0 = Tools.mts_cumview(dX, lag)  # cumulative view for convolution
     # the part of polynominal trend
-    Xvar1 = Tools.dpvander(np.arange(Nt)/Nt, pord, dord)  # division by Nt: normalization for numerical stability
+    Xvar1 = Tools.dpvander(np.arange(Nt)/Nt*10, pord, dord)  # division by Nt: normalization for numerical stability
     # Xvar and Yvar are the variables passed to the Kalman filter
     Xvar = np.vstack([Xvar0, Xvar1[:-1,:]])  #[:-1,:] removes the constant trend which may cause non-invertible covariance matrix. If the constant trend is kept here, Yprd at the end of this function should be modified accordingly like this:
     # Amat0 = Amat[:, :-(pord-dord+1)] ...
@@ -504,14 +506,13 @@ def ssproj(X0, cdim=1, vthresh=None, corrflag=False, sidx=0, Ntrn=None, dflag=Fa
         # 2. by cumulation of sv
         toto = np.cumsum(S) / np.sum(S)
         cdim = np.sum(toto <= 1-vthresh)
-        cdim = max(1, cdim)
-    else:  # if cdim is given, vthresh has no effect
-        pass
+    # else:  # if cdim is given, vthresh has no effect
+    cdim = min(max(1, cdim), len(S))
 
     # projection
     if cdim > 0:
-        # Xprj = U[:,:cdim] @ U[:,:cdim].T @ Stat.centralize(X0)
-        Xprj = U[:,:cdim] @ U[:,:cdim].T @ X0
+        Xprj = U[:,:cdim] @ U[:,:cdim].T @ Stat.centralize(X0)
+        # Xprj = U[:,:cdim] @ U[:,:cdim].T @ X0
 
         # # or by integration, not working well in practice
         # dXprj = U[:,:cdim] @ U[:,:cdim].T @ np.diff(X0, axis=-1)

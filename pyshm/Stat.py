@@ -301,8 +301,14 @@ def Hurst(data, mwsize, sclrng=None, wvlname="haar"):
     H, B, V = np.zeros(Nt), np.zeros(Nt), np.zeros(Nt)
     xvar = np.arange(sclrng[0], sclrng[1]+1)  # explanatory variable
 
+    eps_val = 1e-10
+    # print(eps_val)
     for t in range(Nt):
-        yvar = np.log2(S[:,t])
+        toto = S[:,t].copy()
+        # avoid divide by zero warnings
+        toto[np.isnan(toto)] = eps_val
+        toto[toto<eps_val] = eps_val
+        yvar = np.log2(toto)
         # yvar = np.log2(S[sclrng[0]:sclrng[1],t])
         a, b, v = scalar_linear_regression(yvar, xvar)
         H[t] = max(min((a-1)/2., 1.), 0.)  # since log2(S_j) = (2H+1)*j + e
@@ -698,10 +704,11 @@ def random_subset(func):
         if Nexp > 0:
             Nt = X.shape[1]
             Ns = X.shape[0]*Y.shape[0]
+            # print(Nt, Ns)
             res = []
             for n in range(Nexp):
                 # regression on a random subset
-                idx = np.random.choice(Nt, 2*Ns, replace=False)
+                idx = np.random.choice(Nt, Ns, replace=False)
                 Ysub = Y[:,idx]
                 Xsub = X[:,idx]
                 Wsub = W[:,idx][idx,:] if W is not None else None
@@ -808,9 +815,9 @@ def multi_linear_regression(Y, X, W, vreg=0):
     mX = np.atleast_2d(mean(X, W=W)).T
     mY = np.atleast_2d(mean(Y, W=W)).T
 
-    # L = np.dot(Syx, la.pinv(Sxx))
-    # vreg = 0  # regularization
-    L = np.dot(Syx, la.inv(Sxx + vreg * np.eye(Sxx.shape[0])))
+    # L = np.dot(Syx, la.pinv(Sxx))  # pseudo inverse
+    # print('vreg',vreg)
+    L = np.dot(Syx, la.inv(Sxx + vreg * np.eye(Sxx.shape[0])))  # with regularization
     Cvec = mY - np.dot(L, mX) # if constflag else np.zeros((dimY, 1))
 
     Err = Y - (np.dot(L, X) + Cvec)  # Err has the same length as Y0

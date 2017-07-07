@@ -40,23 +40,47 @@ with open(os.path.join(current_path, 'README.rst'), encoding='utf-8') as f:
 # if a full list of pyx filenames are given instead of the wildcard *, Cython will build a module using the keyword name (if not given, using the first filename) which includes all .so
 # It seems impossible to combine two wildcards: ["pyshm/*.pyx", "pyshm/OSMOS_pkg/*.pyx"] is not accepted
 # Note that the name of the extension must be the same as sources
-# pyshm_ext = [Extension(name="pyshm",  # the full name of the extension
-#                     # sources=["pyshm/*.py"],
-#                     sources=["pyshm/Tools.py", "pyshm/Stat.py", "pyshm/Models.py"],...)]
+pyshm_ext = [Extension("*",
+                    # name="*",  # the full name of the extension
+                    # name="pyshm",  # the full name of the extension
+                    sources=["pyshm/*.py"],
+                    include_dirs=[numpy.get_include()],
+                    libraries=[],
+                    extra_compile_args=["-w"]  # turn off warning
+                    )]
 
-# 2. or explicitly construct the list of extensions like
-pyshm_ext = []
+# pyshm_ext = [Extension("pyshm",
+#                     # name="*",  # the full name of the extension
+#                     # name="pyshm",  # the full name of the extension
+#                     sources=["pyshm/Tools.py", "pyshm/Stat.py", "pyshm/Models.py", "pyshm/Kalman.py"],
+#                     include_dirs=[numpy.get_include()],
+#                     libraries=[],
+#                     extra_compile_args=["-w"]  # turn off warning
+#                     )]
 
-fnames = ['Kalman', 'Models', 'OSMOS', 'Stat', 'Tools'] # file names are manually given
-fname_list = [f+'.py' for f in fnames]
+# # 2. or explicitly construct the list of extensions like
+# pyshm_ext = []
+# fnames0 = ['Kalman', 'Models', 'Stat', 'Tools'] # file names are manually given
+# fnames = [f + '.py' for f in fnames0]
+# for fname in fnames:
+#     pyshm_ext.append(Extension("pyshm",
+#                                 sources=[os.path.join("pyshm", fname)],
+#                                 include_dirs=[numpy.get_include()],
+#                                 libraries=[],
+#                                 extra_compile_args=["-w"]  # turn off warning
+#     ))
 
-for fname in fname_list:
-    pyshm_ext.append(Extension(name="pyshm."+fname[:-3],  # the full name of the package must be given in order that the compiled library is correctly placed in the folder
-                                sources=[os.path.join("pyshm", fname)],
-                                include_dirs=[numpy.get_include()],
-                                libraries=[],
-                                extra_compile_args=["-w"]  # turn off warning
-    ))
+# # 2. or explicitly construct the list of extensions like
+# pyshm_ext = []
+# fnames0 = ['Kalman', 'Models', 'Stat', 'Tools'] # file names are manually given
+# fnames = [f + '.py' for f in fnames0]
+# for fname in fnames:
+#     pyshm_ext.append(Extension(name="pyshm."+fname[:-3],  # the full name of the package must be given in order that the compiled library is correctly placed in the folder
+#                                 sources=[os.path.join("pyshm", fname)],
+#                                 include_dirs=[numpy.get_include()],
+#                                 libraries=[],
+#                                 extra_compile_args=["-w"]  # turn off warning
+#     ))
 
 # Cythonization only for binary build
 if sys.argv[1] in ['sdist', 'develop'] :
@@ -152,19 +176,17 @@ setup(
     # requirements files see:
     # https://packaging.python.org/en/latest/requirements.html
     install_requires=[
-    'numpy>=1.12.1',
-    'scipy>=0.19.0',
-    'pandas>=0.20.1',
+    'numpy',
+    'scipy',
+    'panda',
     # 'matplotlib>=2.0.2',
-    'mpld3>=0.2',
-    'colorama>=0.3.9',
-    'requests>=2.14.2',
+    # 'requests>=2.14.2',
     # # 'statsmodels>=0.8.0',
-    'cython>=0.25.2',
+    'cython',
     # # 'bokeh>=0.12',
-    'joblib>=0.11',
-    'pywavelets>=0.5.2',
-    'setuptools>=27.2.0',  # not necessary
+    'joblib',
+    'pywavelets',
+    'setuptools',  # not necessary
     # 'pymongo',
     # 'scikit-learn',
     # 'xlrd'
@@ -179,25 +201,27 @@ setup(
         # 'test': ['coverage'],
     },
 
-    # To provide executable scripts, use entry points in preference to the
-    # "scripts" keyword. Entry points provide cross-platform support and allow
-    # pip to create the appropriate form of executable for the target platform.
-    entry_points={
-        'console_scripts': [
-            # 'osmos_remote_download = pyshm.script_remote.Download_data:main',
-            # 'osmos_remote_preprocess = pyshm.script_remote.Preprocess_static:main',
-            # 'osmos_remote_deconv = pyshm.script_remote.Deconv_static:main',
-            # # 'osmos_remote_thermal = pyshm.script.Thermal_static:main',
-            # 'osmos_remote_postprocess = pyshm.script_remote.Postprocess_static:main',
-            # 'osmos_remote_plot = pyshm.script_remote.Plot:main',
-            'osmos_deconv = pyshm.script.Deconv_static:main',
-            'osmos_analyse = pyshm.script.Analyse_static:main',
-            'osmos_plot = pyshm.script.Plot_static:main',
-        ],
-    },
-
     # ext_package='pyshm',  # this will put all compiled libraries in a subfolder named pyshm
     ext_modules = ext
     # ext_modules = cythonize(pyshm_ext)  # setuptools_cython module contain bugs
     # cmdclass = {'build_ext': build_ext}
 )
+
+
+# # clear all binary files in the source folder
+# filelist = glob.glob(os.path.join("pyshm", "*.so"))
+# filelist += glob.glob(os.path.join("pyshm", "*.pyd"))
+# filelist += glob.glob(os.path.join("pyshm", "*.c"))
+# for f in filelist:
+#     os.remove(f)
+
+# # clear source files in the build folder
+# filelist = glob.glob(os.path.join("build", "lib.*", "pyshm", "*.c"))
+# filelist += glob.glob(os.path.join("build", "lib.*", "pyshm", "*.py"))
+# for f in filelist:
+#     os.remove(f)
+#     # idx = f.rfind(os.path.sep)
+#     # if f[idx+1:] != '__init__.py':
+#     #     # print(f)
+#     #     os.remove(f)
+
