@@ -40,35 +40,16 @@ with open(os.path.join(current_path, 'README.rst'), encoding='utf-8') as f:
 # if a full list of pyx filenames are given instead of the wildcard *, Cython will build a module using the keyword name (if not given, using the first filename) which includes all .so
 # It seems impossible to combine two wildcards: ["pyshm/*.pyx", "pyshm/OSMOS_pkg/*.pyx"] is not accepted
 # Note that the name of the extension must be the same as sources
+
+# This works: one module <-> one .so
 pyshm_ext = [Extension("*",
-                    # name="*",  # the full name of the extension
-                    # name="pyshm",  # the full name of the extension
+                    # name="*",  # the full name of the extension  <- doesn't work
+                    # name="pyshm",  # the full name of the extension <- doesn't work
                     sources=["pyshm/*.py"],
                     include_dirs=[numpy.get_include()],
                     libraries=[],
                     extra_compile_args=["-w"]  # turn off warning
                     )]
-
-# pyshm_ext = [Extension("pyshm",
-#                     # name="*",  # the full name of the extension
-#                     # name="pyshm",  # the full name of the extension
-#                     sources=["pyshm/Tools.py", "pyshm/Stat.py", "pyshm/Models.py", "pyshm/Kalman.py"],
-#                     include_dirs=[numpy.get_include()],
-#                     libraries=[],
-#                     extra_compile_args=["-w"]  # turn off warning
-#                     )]
-
-# # 2. or explicitly construct the list of extensions like
-# pyshm_ext = []
-# fnames0 = ['Kalman', 'Models', 'Stat', 'Tools'] # file names are manually given
-# fnames = [f + '.py' for f in fnames0]
-# for fname in fnames:
-#     pyshm_ext.append(Extension("pyshm",
-#                                 sources=[os.path.join("pyshm", fname)],
-#                                 include_dirs=[numpy.get_include()],
-#                                 libraries=[],
-#                                 extra_compile_args=["-w"]  # turn off warning
-#     ))
 
 # # 2. or explicitly construct the list of extensions like
 # pyshm_ext = []
