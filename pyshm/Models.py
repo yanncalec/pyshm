@@ -264,8 +264,8 @@ def deconv(Y0, X0, lag, pord=1, dord=0, snr2=None, clen2=None, dspl=1, sidx=0, N
         else:
             X1, Y1 = X0, Y0
 
-        dX = np.zeros_like(X0) * np.nan; dX[:,dord:] = np.diff(X0, dord, axis=-1)
-        dY = np.zeros_like(Y0) * np.nan; dY[:,dord:] = np.diff(Y0, dord, axis=-1)
+        dX = np.zeros_like(X0) * np.nan; dX[:,dord:] = np.diff(X1, dord, axis=-1)
+        dY = np.zeros_like(Y0) * np.nan; dY[:,dord:] = np.diff(Y1, dord, axis=-1)
         # or:
         # dX = Tools.sdiff(X0, dsp, axis=-1)
         # dY = Tools.sdiff(Y0, dsp, axis=-1)
