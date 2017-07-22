@@ -826,7 +826,7 @@ def multi_linear_regression(Y, X, W, vreg=0):
     return L, Cvec, Err, Sig
 
 
-def multi_linear_regression_bm(Y, X, sigmaq2, sigmar2, x0=0., p0=1., smooth=False):
+def multi_linear_regression_bm(Y, X, sigmaq2, sigmar2, x0=0., p0=1., kftype='smoother'):
     """Multivariate linear regression by Brownian motion model.
 
     Args:
@@ -836,7 +836,7 @@ def multi_linear_regression_bm(Y, X, sigmaq2, sigmar2, x0=0., p0=1., smooth=Fals
         sigmar2 (float): variance of observation noise
         x0 (float): initial state (a constant vector)
         p0 (float): variance of the initial state
-        smooth (bool): if True apply Kalman smoother
+        kftype (str): type of Kalman filter: 'smoother' or 'filter'
     Returns:
         ..
         - (A, covA): estimation of the operator and its covariance matrix, time-dependent
@@ -860,40 +860,28 @@ def multi_linear_regression_bm(Y, X, sigmaq2, sigmar2, x0=0., p0=1., smooth=Fals
     # initialize the kalman filter
     _Kalman = Kalman.Kalman(Y, A, B, G=None, Q=sigmaq2, R=sigmar2, X0=x0, P0=p0)
 
-    if smooth:
+    if kftype.upper()=='SMOOTHER':
         LXt, LPt, *_ = _Kalman.smoother()
     else:
         LXt, LPt, *_ = _Kalman.filter()
 
-    Xflt = np.asarray(LXt)
-    Pflt = np.asarray(LPt)
-    # print(Xflt.shape, Pflt.shape)
+    Xflt = np.asarray(LXt)  # state vector
+    Pflt = np.asarray(LPt)  # cov matrix
     # filtered / smoothed observations
     Yflt = np.sum(B * Xflt.transpose(0,2,1), axis=-1).T  # transpose(0,2,1) is for the computation of matrix-vector product, and .T is to make the second axis the time axis.
     Err = Y - Yflt
     Sig = cov(Err, Err)
 
-    Ka0 = []
+    Amat0 = []
     Cvec0 = []
     for t in range(Nt):
-        V = np.reshape(Xflt[t,], (dimobs, -1))  # state vector reshaped as a matrix
-        # Cvec0.append(np.atleast_2d(V[:,-1]))
-        Cvec0.append(V[:,-1])
-        Ka0.append(V[:,:-1])
+        Amat0.append(np.reshape(Xflt[t,:-dimobs], (dimobs,-1)))
+        Cvec0.append(Xflt[t,-dimobs:])
+
     Cvec = np.asarray(Cvec0)
-    Ka = np.asarray(Ka0)  # Ka has shape Nt * dimobs * (dimsys-dimobs)
+    Amat = np.asarray(Amat0)  # Ka has shape Nt * dimobs * (dimsys-dimobs)
 
-    # # filtered / smoothed observations without the polynomial trend
-    # B0 = B[:, :, :-dimobs]
-    # Xflt0 = Xflt[:, :-dimobs, :]
-    # Yflt0 = np.sum(B0 * Xflt0.transpose(0,2,1), axis=-1).T
-
-    # Xflt = np.squeeze(Xflt).T  # take transpose to make the second axis the time axis
-    # Xflt0 = np.squeeze(Xflt0).T
-
-    return (Ka, Pflt[:,:-dimobs,:-dimobs]), (Cvec, Pflt[:,-dimobs:,-dimobs:]), Err, Sig
-    # return Ka, Cvec, Err, Sig
-
+    return (Amat, Pflt[:,:-dimobs,:-dimobs]), (Cvec, Pflt[:,-dimobs:,-dimobs:]), Err, Sig
 
 
 ###### Alarms #####
