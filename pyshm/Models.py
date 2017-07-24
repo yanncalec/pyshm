@@ -250,20 +250,17 @@ class MxDeconv_BM(MxDeconv):
             self._U = None # np.eye(Xvar.shape[0])
             self._cdim = None
 
+        dimobs = Yvar.shape[0]  # dimension of the observation vector and duration
+        dimsys = Xcof.shape[0] * dimobs  # dimension of the system vector
 
         # construct the transition matrix: time-independent
-        dimobs = Yvar.shape[0]  # dimension of the observation vector and duration
-        dimsys = Xcof.shape[0] * dimobs + dimobs  # dimension of the system vector
-        # self._dimobs = dimobs
-        # self._dimsys = dimsys
-
         A = np.eye(dimsys)  # the transition matrix: time-independent
         # construct the observation matrices: time-dependent
         B = np.zeros((self.Nt, dimobs, dimsys))
         for t in range(self.Nt):
             toto = Xcof[:,t].copy()
             toto[np.isnan(toto)] = 0
-            B[t,] = np.hstack([np.kron(np.eye(dimobs), toto), np.eye(dimobs)])
+            B[t,] = np.kron(np.eye(dimobs), toto)
 
         em_vars=[]
         # Covariance matrix of the innovation noise, time-independent
@@ -321,6 +318,7 @@ class MxDeconv_BM(MxDeconv):
             # see: https://pykalman.github.io/#pykalman.KalmanFilter.em
             Ymas = ma.masked_invalid(Ytrn.T)
             KF = KF.em(Ymas)
+            # KF.transition_covariance /= 2  # not helpful
 
         self._fit_results = {'KF': KF, 'tidx0':tidx0, 'tidx1':tidx1, 'vthresh':vthresh, 'cdim':cdim}
         return self._fit_results
@@ -339,14 +337,13 @@ class MxDeconv_BM(MxDeconv):
             Xflt, Pflt = KF.filter(Ymas)
         # print(Xflt.shape, Pflt.shape)
         Amatc0 = []
-        Cvec0 = []
         for t in range(self.Nt):
-            Amatc0.append(np.reshape(Xflt[t,:-dimobs], (dimobs,-1)))
-            Cvec0.append(Xflt[t,-dimobs:])
+            Amatc0.append(np.reshape(Xflt[t,], (dimobs,-1)))
 
         Amatc = np.asarray(Amatc0)  # Amatc has shape Nt * dimobs * (dimsys-dimobs)
-        Cvec = np.asarray(Cvec0)
-        Acovc = Pflt[:,:-dimobs,:-dimobs]
+        # Cvec = np.asarray(Cvec0)
+        Acovc = Pflt
+        # Acovc = Pflt[:,:-dimobs,:-dimobs]
         # Ccov = Pflt[:,-dimobs:,-dimobs:]
 
         if self.dim_reduction:
@@ -358,17 +355,17 @@ class MxDeconv_BM(MxDeconv):
         else:
             Amat, Acov = Amatc, Acovc
 
-        Amat0 = Amat[:, :, :Amat.shape[-1]-(self.pord-self.dord)]  # kernel matrix corresponding to the external input X(t)
+        # kernel matrix corresponding to the external input X(t)
+        Amat0 = Amat[:, :, :Amat.shape[-1]-(self.pord-self.dord)]
 
         # Prediction
+        Yflt = np.zeros_like(self.Y0)
         if polytrend:
             Xcmv = self._Xvar
-            Yflt = np.zeros_like(self._Yvar)
             for t in range(self.Nt):
-                Yflt[:,t] = Amat[t,] @ Xcmv[:,t] + Cvec[t]
+                Yflt[:,t] = Amat[t,] @ Xcmv[:,t]
         else:
             Xcmv = self._Xvar0
-            Yflt = np.zeros_like(self._Yvar)
             for t in range(self.Nt):
                 # Yflt[:,t] = Amat0[t,] @ Xcmv[:,t] + Cvec[t]
                 Yflt[:,t] = Amat0[t,] @ Xcmv[:,t]
@@ -378,18 +375,17 @@ class MxDeconv_BM(MxDeconv):
             for n in range(self.dord):
                 Yflt = np.cumsum(Yflt,axis=-1)
 
+        # # an inexact method
+        # Xcmv = Tools.mts_cumview(self.X0, self.lag)  # cumulative view for convolution
+        # # Xcmv = self.X0
+        # for t in range(self.Nt):
+        #     Yflt[:,t] = Amat0[t,] @ Xcmv[:,t]
+
         Yprd = Yflt
 
-        # # covariance matrix: abandonned
-        # Ycov = np.zeros((Nt,Y0.shape[0],Y0.shape[0]))
-        # for t in range(Nt):
-        #     M = np.kron(np.eye(Y0.shape[0]), Xcmv[:,t])
-        #     Ycov[t,:,:] = M @ Acov[t,] @ M.T
-
-        # return Yprd, ((Amat, Acov), (Cvec, Ccov), Err, Sig), (Amatc, Acovc)
         Err = self.Y0 - Yprd
         Sig = Stat.cov(Err, Err)  # covariance matrix
-        self._predict_results = {'Amat':Amat, 'Acov':Acov, 'Amatc':Amatc, 'Acovc':Acovc, 'Cvec':Cvec, 'Amat0':Amat0, 'Yprd':Yprd, 'Err':Err, 'Sig':Sig}
+        self._predict_results = {'Amat':Amat, 'Acov':Acov, 'Amatc':Amatc, 'Acovc':Acovc,'Amat0':Amat0, 'Yprd':Yprd, 'Err':Err, 'Sig':Sig}
 
         return self._predict_results
 

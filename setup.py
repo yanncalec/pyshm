@@ -167,6 +167,7 @@ setup(
     # # 'bokeh>=0.12',
     'joblib',
     'pywavelets',
+    'pykalman',
     'setuptools',  # not necessary
     # 'pymongo',
     # 'scikit-learn',
