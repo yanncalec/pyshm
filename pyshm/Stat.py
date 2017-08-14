@@ -703,7 +703,7 @@ def random_subset(func):
     def newfunc(Y, X, W, *args, Nexp=100, method="median", **kwargs):
         if Nexp > 0:
             Nt = X.shape[1]
-            Ns = X.shape[0]*Y.shape[0]
+            Ns = min(Nt, X.shape[0]*Y.shape[0])
             # print(Nt, Ns)
             res = []
             for n in range(Nexp):
