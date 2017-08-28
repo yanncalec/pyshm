@@ -747,7 +747,7 @@ class MRA_DCT(object):
     def analysis_tat(self, X0, lvl=None):
         C0, _, self._kl_tat = MRA_DCT._analysis_tat(X0, self.scaling, self.kernels, lvl=lvl)
         Cv, cdims = MRA_DCT.coeff_list2vec(C0)
-        self._kn_tat = np.cumsum([l-1 for l in self._kl_tat][::-1])[::-1]
+        self._kn_tat = np.cumsum([l if n==0 else l-1 for n, l in enumerate(self._kl_tat)][::-1])[::-1]
         return C0, (Cv, cdims)
 
     def synthesis_tat(self, C0, lvl=None, ns=None):

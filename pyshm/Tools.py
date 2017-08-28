@@ -876,3 +876,66 @@ cumstd = along_axis(cumop(nan_safe(np.std)))
 #     else:
 #         axa.plot(X)
 #     return fig, axa
+
+
+# def logscale_bin(N, scaling=2, nbins=10):
+#     """
+#     Uniformly split the integers 0,1,..N-1 into nbins groups in the logarithmic scale.
+
+#     Args:
+#         N (int):
+#         scaling (int): base of the log function
+#         nbins (int): number of bins
+#     Return:
+#         center of bins. Note that the length of result might be smaller than nbins.
+#     """
+#     Lf = np.floor(np.log(N)/np.log(scaling))
+#     #     np.logspace(0, Lf, base=scaling, num=nbins)
+#     return np.unique(np.floor(2**np.linspace(0,Lf,nbins))-1).astype(int)
+
+
+def logscale_bin(N, scaling=2):
+    """
+    Uniformly split the integers 0,1,..N-1 into nbins groups in the logarithmic scale.
+
+    Args:
+        N (int): input
+        scaling (int): base of the log function
+    Return:
+        center of bins
+    """
+    x = N-1
+    v = []
+    while True:
+        x = x//scaling
+        v.append(x)
+        if x == 0:
+            break
+    return v[::-1]
+
+
+def triangle_windowing(x, bins):
+    """
+    Triangle windowing of an array according to given bins.
+
+    Args:
+        x (1d array): input
+        bins (1d array): indices of center of triangle in a strictly increasing order
+    """
+    bins = np.asarray(bins)
+    assert np.all(np.diff(bins)>0)  #
+
+    binsv = bins[np.logical_and(0<=bins, bins<len(x))]
+    bins0 = np.roll(binsv, 1); bins0[0] = 0
+    bins1 = np.roll(binsv, -1); bins1[-1] = len(x)
+
+    y = []
+    for t0, t, t1 in zip(bins0, binsv, bins1):
+        v = 0
+        for s in range(t0, t):
+            v += (s-t0) / (t-t0) * x[s]
+        for s in range(t, t1):
+            v += (t1-s) / (t1-t) * x[s]
+#         print(t0,t,t1)
+        y.append(v)
+    return np.asarray(y)
