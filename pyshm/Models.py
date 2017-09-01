@@ -709,6 +709,400 @@ def ssproj(X0, cdim=1, vthresh=None, corrflag=False, sidx=0, Ntrn=None, dflag=Fa
 #     return np.asarray(Yprd)
 
 
+
+
+# class MRA_DCT(object):
+#     """Multi-resolution analysis DCT.
+#     """
+#     def __init__(self, M, p=2):
+#         """
+#         Args:
+#             M (int): number of frequencies
+#             p (int): scaling factor, p>1 and p must divide M
+
+#         Remarks:
+#             M is also the length of the convolution kernels. M=2 gives a Haar-like tight frame.
+#             Increase M to have more frequencies. The Gibbs effect is proportional to M and will
+#             appear at the head and the tail of the signal of synthesis.
+#         """
+#         assert isinstance(p, int) and p > 1 and (M%p == 0)
+
+#         self.nfreq = M
+#         self.scaling = p  # numerically the scaling factor has to be 2^n to have a tight-frame, error in the original paper?
+#         self.kernels = MRA_DCT.dct_kernels(M)  # kernel matrix, each row corresponds to a kernel, from low to high frequency
+
+#     def analysis(self, X0, lvl=None):
+#         C0, _, self._kn = MRA_DCT._analysis(X0, self.scaling, self.kernels, lvl=lvl)
+#         Cv, cdims = MRA_DCT.coeff_list2vec(C0)
+#         return C0, (Cv, cdims)
+
+#     def synthesis(self, C0, lvl=None, ns=None):
+#         if isinstance(C0, tuple):  # coefficients are in form of vector
+#             Cv, cdims = C0   # dimension information must be provided
+#             Cl = MRA_DCT.coeff_vec2list(Cv, cdims)
+#         else:  # coefficients are in form of list
+#             Cl = C0
+
+#         X0, Xlist = MRA_DCT._synthesis(Cl, self.scaling, self.kernels, lvl=lvl, ns=ns)
+#         return X0, Xlist
+
+#     def analysis_tat(self, X0, lvl=None):
+#         C0, _, self._kl_tat = MRA_DCT._analysis_tat(X0, self.scaling, self.kernels, lvl=lvl)
+#         Cv, cdims = MRA_DCT.coeff_list2vec(C0)
+#         self._kn_tat = np.cumsum([l if n==0 else l-1 for n, l in enumerate(self._kl_tat)][::-1])[::-1]
+#         return C0, (Cv, cdims)
+
+#     def synthesis_tat(self, C0, lvl=None, ns=None):
+#         if isinstance(C0, tuple):  # coefficients are in form of vector
+#             Cv, cdims = C0   # dimension information must be provided
+#             Cl = MRA_DCT.coeff_vec2list(Cv, cdims)
+#         else:  # coefficients are in form of list
+#             Cl = C0
+
+#         X0, Xlist = MRA_DCT._synthesis_tat(Cl, self.scaling, self.kernels, lvl=lvl, ns=ns)
+#         return X0, Xlist
+
+#     def full2valid(self, C0):
+#         return [M[:, l:-l] for M,l in zip(C0, self._kn)]
+
+#     def full2validr(self, C0):
+#         return [M[:, :-l] for M,l in zip(C0, self._kn)]
+
+#     def full2validl(self, C0):
+#         return [M[:, l:] for M,l in zip(C0, self._kn)]
+
+#     def full2valid_tat(self, C0):
+#         return [M[:, l:-l] for M,l in zip(C0, self._kn_tat)]
+
+#     def full2validr_tat(self, C0, fz=False):
+#         if fz:
+#             L = []
+#             for M,l in zip(C0, self._kn_tat):
+#                 toto = M[:, :-l].copy()
+#                 toto[:l] = 0
+#                 L.append(toto)
+#         else:
+#             L = [M[:, :-l] for M,l in zip(C0, self._kn_tat)]
+#         return L
+
+#     def full2validl_tat(self, C0, fz=False):
+#         if fz:
+#             L = []
+#             for M,l in zip(C0, self._kn_tat):
+#                 toto = M[:, l:].copy()
+#                 toto[:-l] = 0
+#                 L.append(toto)
+#         else:
+#             L = [M[:, l:] for M,l in zip(C0, self._kn_tat)]
+#         return L
+
+#     @staticmethod
+#     def coeff_list2vec(Cl):
+#         Cv = np.concatenate([c.flatten() for c in Cl])
+#         cdims = [c.shape for c in Cl]  # dimension information of coefficients of all scales
+#         return Cv, cdims
+
+#     @staticmethod
+#     def coeff_vec2list(Cv, cdims):
+#         cidx = np.cumsum([np.prod(d) for d in cdims])
+#         Cl = [A.reshape(d) for A, d in zip(np.split(Cv, cidx[:-1]), cdims)]
+#         return Cl
+
+#     @staticmethod
+#     def shrinkage(C0, p, soft=False):
+#         assert 0 < p <= 1
+
+#         if isinstance(C0, tuple): # coefficients are in form of vector
+#             Cv, cdims = C0   # dimension information must be provided
+#             Cl = MRA_DCT.coeff_vec2list(*C0)
+#         else:
+#             Cl = C0
+#         # else: # coefficients are in form of list
+#         #     Cv, cdims = MRA_DCT.coeff_list2vec(C0)
+#         #     Cl = C0
+
+#         # idx = max(0, int(len(Cv)*percentage)-1)
+#         # vth = np.sort(np.abs(Cv))[::-1][idx]
+
+#         Ct = []
+#         for c in Cl:
+#             # s, _ = Tools.shrinkage_percentile(c, p, soft=softmode)
+#             s, _ = Tools.shrinkage_nfirst(c, int(p*c.size), soft=soft)
+#             Ct.append(s)
+
+#         return Ct
+
+#     @staticmethod
+#     def shrinkage(C0, p, soft=False, keepdc=False):
+#         assert 0 < p <= 1
+
+#         if isinstance(C0, tuple): # coefficients are in form of vector
+#             Cv, cdims = C0   # dimension information must be provided
+#             Cl = MRA_DCT.coeff_vec2list(*C0)
+#         else: # coefficients are in form of list
+#             Cv, cdims = MRA_DCT.coeff_list2vec(C0)
+#             Cl = C0
+
+#         S, _ = Tools.shrinkage_percentile(Cv, p, soft=soft)
+#         Ct = MRA_DCT.coeff_vec2list(S, cdims)
+#         if keepdc:
+#             Ct[0] = Cl[0].copy()  # keepdc
+#         return Ct
+
+#         # if isinstance(C0, tuple): # coefficients are in form of vector
+#         #     Cv, cdims = C0   # dimension information must be provided
+#         #     Cl = MRA_DCT.coeff_vec2list(*C0)
+#         # else: # coefficients are in form of list
+#         #     Cv, cdims = MRA_DCT.coeff_list2vec(C0)
+#         #     Cl = C0
+
+#         # idx = max(0, int(len(Cv)*p)-1)
+#         # vth = np.sort(np.abs(Cv))[::-1][idx]
+
+#         # Ct = []
+#         # for c in Cl:
+#         #     s, _ = Tools.shrinkage(c, vth, soft=soft)
+#         #     Ct.append(s)
+
+#         # return Ct
+
+#     @staticmethod
+#     def shrinkage_nfirst(C0, N, soft=False, keepdc=False):
+#         assert N>0
+
+#         if isinstance(C0, tuple): # coefficients are in form of vector
+#             Cv, cdims = C0   # dimension information must be provided
+#             Cl = MRA_DCT.coeff_vec2list(*C0)
+#         else: # coefficients are in form of list
+#             Cv, cdims = MRA_DCT.coeff_list2vec(C0)
+#             Cl = C0
+
+#         S, _ = Tools.shrinkage_nfirst(Cv, N, soft=soft)
+#         Ct = MRA_DCT.coeff_vec2list(S, cdims)
+#         if keepdc:
+#             Ct[0] = Cl[0].copy()  # keepdc
+
+#         return Ct
+
+#     @staticmethod
+#     def dct_kernels(M):
+#         toto = []
+#         for l in range(M):
+#             cst = M if l==0 else M/np.sqrt(2)  # <- or /np.sqrt(scaling) ?
+#             toto.append(np.cos(np.pi*(np.arange(M)+0.5)*l/M)/cst)
+#         return np.asarray(toto)
+
+#     @staticmethod
+#     def _analysis(X0, scl, gs, lvl=None):
+#         """
+#         Args:
+#             X0 (1d array): input signal
+#             scl (int): scaling factor, >=2
+#             gs (2d array): square matrix of kernels, each row corresponds to a kernel
+#             lvl (int): level of decomposition, if not given the maximal level is computed from the length of X0
+#             mode (str): mode of convolution, {'full', 'same', 'valid'}. Only 'full' gives a tight frame
+#         """
+#         # assert lvl>0
+#         # assert gs.shape[0] == gs.shape[1]
+
+#         # zero-padding
+#         #     x0 = np.zeros(2**int(np.ceil(np.log2(len(X0)))))
+#         #     x0[:len(X0)] = X0
+#         #         if len(X0)%2==1:
+#         #             x0 = np.concatenate([X0,[0]])
+#         #         else:
+#         #             x0 = X0
+
+#         if lvl is None:
+#             lvl = int(np.floor(np.log(len(X0))/np.log(scl)))
+
+#         res = [[np.asarray(X0)]]
+#         ker_len = [0]
+
+#         for n in range(lvl):
+#             c0 = res[-1][0]  # approximation coeffs of the last level
+#             toto = []
+
+#             for knl in gs:
+#                 # for online application, use convolve instead of fftconvolve
+#                 cx = np.sqrt(scl) * scipy.signal.fftconvolve(c0, knl[::-1], mode='full')
+#                 toto.append(cx)
+#             c1 = np.asarray(toto)[:, ::scl]  # down-sampling
+#             ker_len.append(int(np.ceil((ker_len[-1]+len(knl)-1)/scl)))
+#             res.append(c1)
+
+#         # full coefficients, res[1:] to drop the original signal, and
+#         # [::-1] to arange the scale from coarse to to fine
+#         coeff_full = res[1:][::-1]
+#         coeff = [coeff_full[0]]  # no approximation coefficients except for the coarsest level
+#         coeff += [c[1:] for c in coeff_full[1:]]
+
+#         return coeff, coeff_full, ker_len[1:][::-1]
+
+#     @staticmethod
+#     def _synthesis(C0, scl, gs, lvl=None, ns=None):
+#         """
+#         Args:
+#             C0 (list of 2d arrays): coefficients of analysis from coarse to fine, must have the same dimension as the first value returned by _analysis()
+#             scl (int): scaling factor, >=2
+#             gs (2d array): square matrix of kernels, each row corresponds to a kernel
+#             lvl (int): level of synthesis, if not given all levels in C0 will be used
+#             ns (int): truncation length of the final output
+#         """
+#         if lvl is None:
+#             lvl = len(C0)
+#     #     assert 0 < order <= len(C0)
+#     #     assert gs.shape[0] == gs.shape[1]
+
+#         M = gs.shape[1]
+#         Xlist = []  # approximation coefficients
+
+#         for n in range(lvl):
+#             # get the full coefficient matrix of the current level
+#             if n==0:  # the coarsest level
+#                 cmat = C0[0]
+#             else:  # for other levels
+#                 L = C0[n].shape[1]
+#                 cmat = np.vstack([Xlist[-1][:L], C0[n]])
+
+#             toto = []
+#             cmau = np.zeros((cmat.shape[0], scl*cmat.shape[1]))
+#             cmau[:,::scl] = cmat
+#             for knl, c1 in zip(gs, cmau):
+#                 # c1 = np.zeros(scl*len(c0))
+#                 # c1[::scl] = c0  # up-sampling
+#                 # for online application, use convolve instead of fftconvolve
+#                 cx = np.sqrt(scl) * scipy.signal.fftconvolve(c1, knl, mode='full')
+#                 toto.append(cx)
+
+#             # truncate the first M-1 coefficients which cause border effect
+#             # The offset M-1 below in necessay to have perfect reconstruction and it is determined by experiments, although theoretical analysis does not seem to need such an offset.
+#             Xlist.append(np.sum(np.asarray(toto), axis=0)[M-1:])
+
+#         # truncate the last M-1 coefficients which cause border effect. It seems that when the length of the original signal is even, the last M coefficients should be truncated to keep the resynthesis the same size as the original. Reason?
+#         X0 = Xlist[-1][:-(M-1)] if ns is None else Xlist[-1][:ns]
+
+#         return X0, Xlist
+
+#     @staticmethod
+#     def _analysis_tat(X0, scl, gs, lvl=None):
+#         """
+#         Args:
+#             X0 (1d array): input signal
+#             scl (int): scaling factor, >=2
+#             gs (2d array): square matrix of kernels, each row corresponds to a kernel
+#             lvl (int): level of decomposition, if not given the maximal level is computed from the length of X0
+#             mode (str): mode of convolution, {'full', 'same', 'valid'}. Only 'full' gives a tight frame
+#         """
+#         # assert lvl>0
+#         # assert gs.shape[0] == gs.shape[1]
+
+#         # zero-padding
+#         #     x0 = np.zeros(2**int(np.ceil(np.log2(len(X0)))))
+#         #     x0[:len(X0)] = X0
+#         #         if len(X0)%2==1:
+#         #             x0 = np.concatenate([X0,[0]])
+#         #         else:
+#         #             x0 = X0
+
+#         if lvl is None:
+#             lvl = int(np.floor(np.log(len(X0))/np.log(scl)))
+
+#         res = [[np.asarray(X0)]]
+#         # rev = [[np.asarray(X0)]]
+#         ker_len = []
+
+#         for n in range(lvl):
+#             c0 = res[-1][0]  # approximation coeffs of the last level
+#             # c1 = rev[-1][0]  # approximation coeffs of the last level
+#             toto = []
+#             # fofo = []
+
+#             fct = scl**n  # up-sampling factor
+#             for knl0 in gs:
+#                 # up-sampling of the kernels
+#                 knl = np.zeros(fct*(len(knl0)-1)+1)
+#                 # knl = np.zeros(fct*(len(knl0)))
+#                 knl[::fct] = knl0
+#                 # for online application, use convolve instead of fftconvolve
+#                 cx = np.sqrt(scl) * scipy.signal.fftconvolve(c0, knl[::-1], mode='full')
+#                 # cy = np.sqrt(scl) * scipy.signal.fftconvolve(c1, knl[::-1], mode='full')
+#                 toto.append(cx)
+#                 # fofo.append(cy)
+
+#             ker_len.append(len(knl))
+#             res.append(np.asarray(toto))
+#             # rev.append(np.asarray(fofo)[:, :-(len(knl)-1)])
+#             # ker_len.append(len(knl))
+
+#         # full coefficients, res[1:] to drop the original signal, and
+#         # [::-1] to arange the scale from coarse to to fine
+#         coeff_full = res[1:][::-1]
+#         coeff = [coeff_full[0]]  # no approximation coefficients except for the coarsest level
+#         coeff += [c[1:] for c in coeff_full[1:]]
+
+#         return coeff, coeff_full, ker_len[::-1]
+
+#     @staticmethod
+#     def _synthesis_tat(C0, scl, gs, lvl=None, ns=None):
+#         """
+#         Transforme à trous (TAT)
+#         Args:
+#             C0 (list of 2d arrays): coefficients of analysis from coarse to fine, must have the same dimension as the first value returned by _analysis()
+#             scl (int): scaling factor, >=2
+#             gs (2d array): square matrix of kernels, each row corresponds to a kernel
+#             lvl (int): level of synthesis, if not given all levels in C0 will be used
+#             ns (int): truncation length of the final output
+#         """
+#         if lvl is None:
+#             lvl = len(C0)
+#     #     assert 0 < order <= len(C0)
+#     #     assert gs.shape[0] == gs.shape[1]
+
+#         M = gs.shape[1]
+#         Xlist = []  # approximation coefficients
+
+#         for n in range(lvl):
+#             # get the full coefficient matrix of the current level
+#             if n==0:  # the coarsest level
+#                 cmat = C0[0]
+#             else:  # for other levels
+#                 L = C0[n].shape[1]
+#                 cmat = np.vstack([Xlist[-1][:L], C0[n]])
+
+#             fct = scl**(lvl-n)  # up-sampling factor for coefficient vector
+#             fctk = scl**(lvl-n-1)  # up-sampling factor for kernel vector
+#             mask = np.zeros(cmat.shape[1])
+#             mask[::fct] = 1
+
+#             toto = []
+#             for knl0, c0 in zip(gs, cmat):
+#                 # # down-sampling the coefficient vector
+#                 # c1 = c0[::fct]  # c1 is identical to the coefficient vector of wavelet transform
+#                 # # up-sampling the down-sampled vector
+#                 # c2 = np.zeros(scl*len(c1))
+#                 # c2[::scl] = c1
+
+#                 # mask the coefficient vector
+#                 c1 = mask * c0
+#                 # up-sampling of the kernels
+#                 knl = np.zeros(fctk*(len(knl0)-1)+1)
+#                 # knl = np.zeros(fctk*(len(knl0)))
+#                 knl[::fctk] = knl0
+#                 # for online application, use convolve instead of fftconvolve
+#                 cx = np.sqrt(scl) * scipy.signal.fftconvolve(c1, knl, mode='full')
+#                 toto.append(cx[len(knl)-1:])  # drop head
+
+#             Xlist.append(np.sum(np.asarray(toto), axis=0))
+
+#         # truncate the last M-1 coefficients which cause border effect. It seems that when the length of the original signal is even, the last M coefficients should be truncated to keep the resynthesis the same size as the original. Reason?
+#         X0 = Xlist[-1] #[::scl]
+#         X0 = X0[:-(M-1)] if ns is None else X0[:ns]
+
+#         return X0, Xlist
+
+
+
 class MRA_DCT(object):
     """Multi-resolution analysis DCT.
     """
@@ -726,81 +1120,243 @@ class MRA_DCT(object):
         assert isinstance(p, int) and p > 1 and (M%p == 0)
 
         self.nfreq = M
-        self.scaling = p  # numerically the scaling factor has to be 2^n to have a tight-frame, error in the original paper?
-        self.kernels = MRA_DCT.dct_kernels(M)  # kernel matrix, each row corresponds to a kernel, from low to high frequency
+        self.scaling = p
+        self.kernels = self.dct_kernels(M)  # kernel matrix, each row corresponds to a kernel, from low to high frequency
+        self._dimx = None  # dimension of the input vector
+        self._dimc = None  # dimension of the output vector
 
     def analysis(self, X0, lvl=None):
-        C0, _ = MRA_DCT._analysis(X0, self.scaling, self.kernels, lvl=lvl)
-        Cv, cdims = MRA_DCT.coeff_list2vec(C0)
-        return C0, (Cv, cdims)
+        """
+        Remark: information about dimension and number of boundary-crossing elements are updated after each call
+        """
+        if lvl is None:
+            lvl = self.maxlevel(len(X0), self.scaling)
 
-    def synthesis(self, C0, lvl=None, ns=None):
-        if isinstance(C0, tuple):  # coefficients are in form of vector
-            Cv, cdims = C0   # dimension information must be provided
-            Cl = MRA_DCT.coeff_vec2list(Cv, cdims)
-        else:  # coefficients are in form of list
-            Cl = C0
+        (Ca, Cd), _, self._bn = self._analysis(X0, self.scaling, self.kernels, lvl=lvl)
+        Cv, self._cdims = self.coeff_list2vec(Ca, Cd)  # _cdims[n] is the dimension of Cd[n]
 
-        X0, Xlist = MRA_DCT._synthesis(Cl, self.scaling, self.kernels, lvl=lvl, ns=ns)
-        return X0, Xlist
+        if self._dimc is None:  # first application
+            self._dimc = len(Cv)
 
-    def analysis_tat(self, X0, lvl=None):
-        C0, _, self._kl_tat = MRA_DCT._analysis_tat(X0, self.scaling, self.kernels, lvl=lvl)
-        Cv, cdims = MRA_DCT.coeff_list2vec(C0)
-        self._kn_tat = np.cumsum([l if n==0 else l-1 for n, l in enumerate(self._kl_tat)][::-1])[::-1]
-        return C0, (Cv, cdims)
+        if self._dimx is None:  # first application
+            self._dimx = len(X0)
+            self.mask_restriction()  # update the mask
+        else:
+            if self._dimx != len(X0):
+                self.mask_restriction()  # update the mask
 
-    def synthesis_tat(self, C0, lvl=None, ns=None):
-        if isinstance(C0, tuple):  # coefficients are in form of vector
-            Cv, cdims = C0   # dimension information must be provided
-            Cl = MRA_DCT.coeff_vec2list(Cv, cdims)
-        else:  # coefficients are in form of list
-            Cl = C0
+        return Cv
 
-        X0, Xlist = MRA_DCT._synthesis_tat(Cl, self.scaling, self.kernels, lvl=lvl, ns=ns)
-        return X0, Xlist
+    def synthesis(self, Cv, lvl=None, ns=None):
+        assert len(Cv) == self._dimc
+        Ca, Cd = self.coeff_vec2list(Cv)
 
-    def full2valid_tat(self, C0):
-        return [M[:, l:-l] for M,l in zip(C0, self._kn_tat)]
+        X0, Xlist = self._synthesis(Ca, Cd, self.scaling, self.kernels, lvl=lvl, ns=ns)
+        return X0
 
-    def full2validr_tat(self, C0):
-        return [M[:, :-l] for M,l in zip(C0, self._kn_tat)]
+    def mask_restriction(self, cdims=None, bn=None):
+        if cdims is None:
+            cdims = self._cdims
+        if bn is None:
+            bn = self._bn
+        assert len(bn) == len(cdims)
 
-    def full2validl_tat(self, C0):
-        return [M[:, l:] for M,l in zip(C0, self._kn_tat)]
+        # construct the mask
+        V = []; L = []; R = []
+        Vm = []; Lm = []; Rm = []
+
+        for n, (dim, l) in enumerate(zip(cdims, bn)):
+            toto = np.zeros(dim, dtype=bool)
+            toto[:, l:-l] = True
+            Vm.append(toto)
+            V.append(toto.flatten())
+
+            toto.fill(False)
+            toto[:, l:] = True
+            Lm.append(toto)
+            L.append(toto.flatten())
+
+            toto.fill(False)
+            toto[:, :-l] = True
+            Rm.append(toto)
+            R.append(toto.flatten())
+
+        # mask of id coefficients
+        self._vmaskd = np.hstack(V)  # mask for valid detail coefficients  (non-causal)
+        self._lmaskd = np.hstack(L)  # mask for left-valid detail coefficients  (anti-causal)
+        self._rmaskd = np.hstack(R)  # mask for right-valid detail coefficients  (causal)
+        self._vmaska = self._vmaskd[:cdims[0][1]]  # for approximation coefficients
+        self._lmaska = self._lmaskd[:cdims[0][1]]
+        self._rmaska = self._rmaskd[:cdims[0][1]]
+        self._vmask = np.hstack([self._vmaska, self._vmaskd])  # for all coefficients
+        self._lmask = np.hstack([self._lmaska, self._lmaskd])
+        self._rmask = np.hstack([self._rmaska, self._rmaskd])
+        # no return type
+
+    def restriction(self, Cv, mode='valid'):
+        assert len(Cv) == self._dimc
+        if mode == 'valid':
+            V = Cv[self._vmask]
+        elif mode == 'left':
+            V = Cv[self._lmask]
+        else:
+            V = Cv[self._rmask]
+        return V
+
+    def extension(self, Cv, mode='valid'):
+        V = np.zeros(self._dimc)
+        if mode == 'valid':
+            V[self._vmask] = Cv
+        elif mode == 'left':
+            V[self._lmask] = Cv
+        else:
+            V[self._rmask] = Cv
+        return V
+
+    def restriction_list(self, Ca, Cd, mode='valid'):
+        if mode == 'valid':
+            Ra = Ca[self._bn[0]:-self._bn[0]]
+            Rd = [c[:,l:-l] for c,l in zip(Cd, self._bn)]
+        elif mode == 'left':
+            Ra = Ca[self._bn[0]:]
+            Rd = [c[:,l:] for c,l in zip(Cd, self._bn)]
+        else:
+            Ra = Ca[:-self._bn[0]]
+            Rd = [c[:,:-l] for c,l in zip(Cd, self._bn)]
+        return Ra, Rd
+
+    def extension_list(self, Ra, Rd, mode='valid'):
+        Ca = np.zeros(self._cdims[0])
+        Cd = []
+        if mode == 'valid':
+            Ca[self._bn[0]:-self._bn[0]] = Ra
+            for c, l, d in zip(Rd, self._bn, self._cdims):
+                toto = np.zeros(d)
+                toto[:,l:-l] = c
+                Cd.append(toto)
+        elif mode == 'left':
+            Ca[self._bn[0]:] = Ra
+            for c, l, d in zip(Rd, self._bn, self._cdims):
+                toto = np.zeros(d)
+                toto[:,l:] = c
+                Cd.append(toto)
+        else:
+            Ca[:-self._bn[0]] = Ra
+            for c, l, d in zip(Rd, self._bn, self._cdims):
+                toto = np.zeros(d)
+                toto[:,:-l] = c
+                Cd.append(toto)
+        return Ca, Cd
+
+    def clear_boundary(self, Cv, mode='valid'):
+        return self.extension(self.restriction(Cv, mode=mode), mode=mode)
+
+    def shrinkage(self, C0, p, soft=False, keepdc=True, mode='valid'):
+        if mode == 'valid':
+            mask, maska, maskd = self._vmask, self._vmaska, self._vmaskd
+        elif mode == 'left':
+            mask, maska, maskd = self._lmask, self._lmaska, self._lmaskd
+        elif mode == 'right':
+            mask, maska, maskd = self._rmask, self._rmaska, self._rmaskd
+        else:
+            mask, maska, maskd = np.ones(len(self._vmask), dtype=bool), np.ones(len(self._vmaska), dtype=bool), np.ones(len(self._vmaskd), dtype=bool)
+
+        if keepdc:
+            Ca = C0[:self._cdims[0][1]]
+            Cdv = C0[self._cdims[0][1]:]
+            Cdv[maskd] = Tools.shrinkage_percentile(Cdv[maskd], p, soft=soft)
+            Cv = np.hstack([Ca, Cdv])
+        else:
+            Cv = C0.copy()
+            Cv[mask] = Tools.shrinkage_percentile(Cv[mask], p, soft=soft)
+        return Cv
+
+    def denoising(self, x0, p, lvl=None, soft=False, keepdc=True, mode='valid'):
+        if lvl is None:
+            lvl = self.maxlevel(len(x0), self.nfreq, self.scaling, c=4)
+
+        # Analysis
+        c0 = self.analysis(x0, lvl=lvl)
+
+        # Shrinkage
+        cs = self.shrinkage(c0, p, soft=soft, keepdc=keepdc, mode=mode)
+
+        # Synthesis
+        xs = self.synthesis(cs, ns=len(x0))
+        err = x0 - xs
+
+        # Synthesis may contain Gibbs effect => truncation of result
+        # Remark: the length of truncation comes from observation
+        ss = scipy.std(xs[self.nfreq:-self.nfreq])
+        sn = scipy.std(err[self.nfreq:-self.nfreq])
+        snr = 10*np.log10(ss/sn)
+
+        return xs, (c0, cs), snr
+
+    # def full2valid(self, C0):
+    #     return [M[:, l:-l] for M,l in zip(C0, self._kn)]
+
+    # def full2validr(self, C0):
+    #     return [M[:, :-l] for M,l in zip(C0, self._kn)]
+
+    # def full2validl(self, C0):
+    #     return [M[:, l:] for M,l in zip(C0, self._kn)]
+
+    # @staticmethod
+    # def shrinkage_nfirst(C0, N, soft=False, keepdc=False):
+
+    #     if isinstance(C0, tuple): # coefficients are in form of vector
+    #         Cv, cdims = C0   # dimension information must be provided
+    #         Cl = MRA_DCT.coeff_vec2list(*C0)
+    #     else: # coefficients are in form of list
+    #         Cv, cdims = MRA_DCT.coeff_list2vec(C0)
+    #         Cl = C0
+
+    #     dim = Cl[0].shape[1]
+    #     if keepdc:
+    #         S0 = Tools.shrinkage_nfirst(Cv[dim:], N, soft=soft)
+    #         S = np.hstack([Cv[:dim], S0])
+    #     else:
+    #         S = Tools.shrinkage_nfirst(Cv, N, soft=soft)
+
+    #     Ct = MRA_DCT.coeff_vec2list(S, cdims)
+
+    #     # S, _ = Tools.shrinkage_nfirst(Cv, N, soft=soft)
+    #     # Ct = MRA_DCT.coeff_vec2list(S, cdims)
+    #     # if keepdc:
+    #     #     Ct[0][0,:] = Cl[0][0,:].copy()
+
+    #     return Ct
+
+    def maxlevel(self, N, c=1):
+        """Determine the maximum level of decomposition J so that
+            N/scl^J >= c*nfreq
+        """
+        return int(np.floor(np.log(N/self.nfreq/c)/np.log(self.scaling))) + 1
+
+    def coeff_list2vec(self, Ca, Cd):
+        V = np.hstack([Ca, np.concatenate([c.flatten() for c in Cd])])
+        cdims = [c.shape for c in Cd]  # dimension information of detail coefficients of all scales
+        return V, cdims
+
+    def coeff_vec2list(self, V):
+        return self._vec2list(V, self._cdims)
 
     @staticmethod
-    def coeff_list2vec(Cl):
-        Cv = np.concatenate([c.flatten() for c in Cl])
-        cdims = [c.shape for c in Cl]  # dimension information of coefficients of all scales
-        return Cv, cdims
-
-    @staticmethod
-    def coeff_vec2list(Cv, cdims):
+    def _vec2list(V, cdims):
         cidx = np.cumsum([np.prod(d) for d in cdims])
-        Cl = [A.reshape(d) for A, d in zip(np.split(Cv, cidx[:-1]), cdims)]
-        return Cl
+        N = cidx[-1]
 
-    @staticmethod
-    def shrinkage(C0, percentage, softmode=False):
-        assert 0 < percentage <= 1
-
-        if isinstance(C0, tuple): # coefficients are in form of vector
-            Cv, cdims = C0   # dimension information must be provided
-            Cl = MRA_DCT.coeff_vec2list(*C0)
-        else: # coefficients are in form of list
-            Cv, cdims = MRA_DCT.coeff_list2vec(C0)
-            Cl = C0
-
-        idx = max(0, int(len(Cv)*percentage)-1)
-        vth = np.sort(np.abs(Cv))[::-1][idx]
-
-        Ct = []
-        for c in Cl:
-            s, _ = Tools.shrinkage(c, vth, soft=softmode)
-            Ct.append(s)
-
-        return Ct
+        if len(V) == N + cdims[0][1]:  # V is the full vector of approx+detail coefficient
+            Ca = V[:cdims[0][1]]  # approximation coefficients
+            Vd = V[cdims[0][1]:]  # detail coefficients
+            Cd = [A.reshape(d) for A, d in zip(np.split(Vd, cidx[:-1]), cdims)]
+        elif len(V) == N:  # V is the vector of detail coefficient
+            Ca = []
+            Cd = [A.reshape(d) for A, d in zip(np.split(V, cidx[:-1]), cdims)]
+        else:
+            raise TypeError('Input vector has incorrect dimension')
+        return Ca, Cd
 
     @staticmethod
     def dct_kernels(M):
@@ -811,14 +1367,13 @@ class MRA_DCT(object):
         return np.asarray(toto)
 
     @staticmethod
-    def _analysis(X0, scl, gs, lvl=None):
+    def _analysis(X0, scl, gs, lvl):
         """
         Args:
             X0 (1d array): input signal
             scl (int): scaling factor, >=2
             gs (2d array): square matrix of kernels, each row corresponds to a kernel
             lvl (int): level of decomposition, if not given the maximal level is computed from the length of X0
-            mode (str): mode of convolution, {'full', 'same', 'valid'}. Only 'full' gives a tight frame
         """
         # assert lvl>0
         # assert gs.shape[0] == gs.shape[1]
@@ -831,46 +1386,53 @@ class MRA_DCT(object):
         #         else:
         #             x0 = X0
 
-        if lvl is None:
-            lvl = int(np.floor(np.log(len(X0))/np.log(scl)))
-
         res = [[np.asarray(X0)]]
+        bn = [0]  # number of samples acrossing the left/right boundary
+        M = gs.shape[1]
+
         for n in range(lvl):
             c0 = res[-1][0]  # approximation coeffs of the last level
             toto = []
 
-            for knl in gs:
+            for g in gs:
                 # for online application, use convolve instead of fftconvolve
-                cx = np.sqrt(scl) * scipy.signal.fftconvolve(c0, knl[::-1], mode='full')
+                cx = np.sqrt(scl) * scipy.signal.fftconvolve(c0, g[::-1], mode='full')
                 toto.append(cx)
-            c1 = np.asarray(toto)[:, ::scl]  # down-sampling
+            c1 = np.asarray(toto)[:, ::scl]  # down-sampling of N samples by the factor scl gives (N-1)//scl + 1 samples
+            bn.append((bn[-1]+M-2)//scl+1)  # kn[-1]+M-1 is the number of samples acrossing the left/right boundary
             res.append(c1)
 
         # full coefficients, res[1:] to drop the original signal, and
         # [::-1] to arange the scale from coarse to to fine
-        coeff_full = res[1:][::-1]
-        coeff = [coeff_full[0]]  # no approximation coefficients except for the coarsest level
-        coeff += [c[1:] for c in coeff_full[1:]]
+        Cf = res[1:][::-1]
 
-        return coeff, coeff_full
+        Ca = Cf[0][0,:]  # approximation coefficients
+        Cd = [c[1:,:] for c in Cf]  # detail coefficients
+
+        return (Ca, Cd), Cf, bn[1:][::-1]
 
     @staticmethod
-    def _synthesis(C0, scl, gs, lvl=None, ns=None):
+    def _synthesis(Ca, Cd, scl, gs, lvl=None, ns=None):
         """
         Args:
-            C0 (list of 2d arrays): coefficients of analysis from coarse to fine, must have the same dimension as the first value returned by _analysis()
+            Ca (1d arrays): approximation coefficients
+            Cd (list of 2d arrays): detail coefficients of analysis from coarse to fine
             scl (int): scaling factor, >=2
             gs (2d array): square matrix of kernels, each row corresponds to a kernel
             lvl (int): level of synthesis, if not given all levels in C0 will be used
             ns (int): truncation length of the final output
         """
         if lvl is None:
-            lvl = len(C0)
+            lvl = len(Cd)
     #     assert 0 < order <= len(C0)
     #     assert gs.shape[0] == gs.shape[1]
 
-        M = gs.shape[1]
+        M = gs.shape[1]  # length of kernel
         Xlist = []  # approximation coefficients
+
+        # Concatenation of Ca and Cd
+        C0 = [c.copy() for c in Cd]
+        C0[0] = np.vstack([Ca, Cd[0]])
 
         for n in range(lvl):
             # get the full coefficient matrix of the current level
@@ -883,11 +1445,11 @@ class MRA_DCT(object):
             toto = []
             cmau = np.zeros((cmat.shape[0], scl*cmat.shape[1]))
             cmau[:,::scl] = cmat
-            for knl, c1 in zip(gs, cmau):
+            for g, c1 in zip(gs, cmau):
                 # c1 = np.zeros(scl*len(c0))
                 # c1[::scl] = c0  # up-sampling
                 # for online application, use convolve instead of fftconvolve
-                cx = np.sqrt(scl) * scipy.signal.fftconvolve(c1, knl, mode='full')
+                cx = np.sqrt(scl) * scipy.signal.fftconvolve(c1, g, mode='full')
                 toto.append(cx)
 
             # truncate the first M-1 coefficients which cause border effect
@@ -899,8 +1461,75 @@ class MRA_DCT(object):
 
         return X0, Xlist
 
+
+class MRA_DCT_TAT(MRA_DCT):
+    """Multi-resolution analysis DCT using transform à trous.
+    """
+
+    def analysis(self, X0, lvl=None):
+        """
+        """
+        if lvl is None:
+            lvl = self.maxlevel(len(X0), self.scaling)
+
+        # _kl[s] is the length of convolution kernel used at the scale s in tat
+        (Ca, Cd), _, self._kl = self._analysis(X0, self.scaling, self.kernels, lvl=lvl)
+        Cv, self._cdims = self.coeff_list2vec(Ca, Cd)
+        # self._bn = np.cumsum([l if n==0 else l-1 for n, l in enumerate(self._kl)][::-1])[::-1]
+        self._bn = np.cumsum([l-1 for l in self._kl][::-1])[::-1]  # _bn[s] is the number of boundary-crossing coefficients in the convolution at scale s
+
+        if self._dimc is None:  # first application
+            self._dimc = len(Cv)
+
+        if self._dimx is None:  # first application
+            self._dimx = len(X0)
+            self.mask_restriction()  # update the mask
+        else:
+            if self._dimx != len(X0):
+                self.mask_restriction()  # update the mask
+
+        return Cv
+
+    def synthesis(self, Cv, lvl=None, ns=None):
+        assert len(Cv) == self._dimc
+        Ca, Cd = self.coeff_vec2list(Cv)
+
+        X0, Xlist = self._synthesis(Ca, Cd, self.scaling, self.kernels, lvl=lvl, ns=ns)
+        return X0
+
+        # if isinstance(C0, tuple):  # coefficients are in form of vector
+        #     Cv, cdims = C0   # dimension information must be provided
+        #     Cl = self.coeff_vec2list(Cv, cdims)
+        # else:  # coefficients are in form of list
+        #     Cl = C0
+
+        # X0, Xlist = self._synthesis(Cl, self.scaling, self.kernels, lvl=lvl, ns=ns)
+        # return X0, Xlist
+
+    # def full2valid(self, C0, fz=True):
+    #     return [M[:, l:-l] for M,l in zip(C0, self._kn)]
+
+    # def full2validr(self, C0, fz=False):
+    #     L = []
+    #     for M,l in zip(C0, self._kn):
+    #         toto = M[:, :-l].copy()
+    #         if fz:
+    #             toto[:, :l] = 0
+    #         L.append(toto)
+    #     return L
+
+    # def full2validl(self, C0, fz=False):
+    #     L = []
+    #     for M,l in zip(C0, self._kn):
+    #         toto = M[:, l:].copy()
+    #         if fz:
+    #             toto[:, :-l] = 0
+    #         L.append(toto)
+    #     return L
+
+
     @staticmethod
-    def _analysis_tat(X0, scl, gs, lvl=None):
+    def _analysis(X0, scl, gs, lvl):
         """
         Args:
             X0 (1d array): input signal
@@ -920,46 +1549,39 @@ class MRA_DCT(object):
         #         else:
         #             x0 = X0
 
-        if lvl is None:
-            lvl = int(np.floor(np.log(len(X0))/np.log(scl)))
-
         res = [[np.asarray(X0)]]
-        # rev = [[np.asarray(X0)]]
-        ker_len = []
+        kl = []  # kernal length
+        M = gs.shape[1]  # kernel length
 
         for n in range(lvl):
             c0 = res[-1][0]  # approximation coeffs of the last level
-            # c1 = rev[-1][0]  # approximation coeffs of the last level
             toto = []
-            # fofo = []
 
             fct = scl**n  # up-sampling factor
-            for knl0 in gs:
-                # up-sampling of the kernels
-                knl = np.zeros(fct*(len(knl0)-1)+1)
-                # knl = np.zeros(fct*(len(knl0)))
-                knl[::fct] = knl0
-                # for online application, use convolve instead of fftconvolve
-                cx = np.sqrt(scl) * scipy.signal.fftconvolve(c0, knl[::-1], mode='full')
-                # cy = np.sqrt(scl) * scipy.signal.fftconvolve(c1, knl[::-1], mode='full')
-                toto.append(cx)
-                # fofo.append(cy)
+            g = np.zeros(fct*(M-1)+1)
+            # knl = np.zeros(fct*(len(knl0)))
+            kl.append(len(g))
 
-            ker_len.append(len(knl))
+            for g0 in gs:
+                # up-sampling of the kernels
+                g.fill(0); g[::fct] = g0
+                # for online application, use convolve instead of fftconvolve
+                cx = np.sqrt(scl) * scipy.signal.fftconvolve(c0, g[::-1], mode='full')
+                toto.append(cx)
+
             res.append(np.asarray(toto))
-            # rev.append(np.asarray(fofo)[:, :-(len(knl)-1)])
-            # ker_len.append(len(knl))
 
         # full coefficients, res[1:] to drop the original signal, and
         # [::-1] to arange the scale from coarse to to fine
-        coeff_full = res[1:][::-1]
-        coeff = [coeff_full[0]]  # no approximation coefficients except for the coarsest level
-        coeff += [c[1:] for c in coeff_full[1:]]
+        Cf = res[1:][::-1]
 
-        return coeff, coeff_full, ker_len[::-1]
+        Ca = Cf[0][0,:]  # approximation coefficients
+        Cd = [c[1:,:] for c in Cf]  # detail coefficients
+
+        return (Ca, Cd), Cf, kl[::-1]
 
     @staticmethod
-    def _synthesis_tat(C0, scl, gs, lvl=None, ns=None):
+    def _synthesis(Ca, Cd, scl, gs, lvl=None, ns=None):
         """
         Transforme à trous (TAT)
         Args:
@@ -970,12 +1592,16 @@ class MRA_DCT(object):
             ns (int): truncation length of the final output
         """
         if lvl is None:
-            lvl = len(C0)
+            lvl = len(Cd)
     #     assert 0 < order <= len(C0)
     #     assert gs.shape[0] == gs.shape[1]
 
         M = gs.shape[1]
         Xlist = []  # approximation coefficients
+
+        # Concatenation of Ca and Cd
+        C0 = [c.copy() for c in Cd]
+        C0[0] = np.vstack([Ca, Cd[0]])
 
         for n in range(lvl):
             # get the full coefficient matrix of the current level
@@ -1015,4 +1641,128 @@ class MRA_DCT(object):
         X0 = X0[:-(M-1)] if ns is None else X0[:ns]
 
         return X0, Xlist
+
+    # def shrinkage(self, C0, p, soft=False, keepdc=False, mask=True):
+
+    #     if isinstance(C0, tuple): # coefficients are in form of vector
+    #         Cv0, cdims = C0   # dimension information must be provided
+    #         Cl = MRA_DCT.coeff_vec2list(*C0)
+    #     else: # coefficients are in form of list
+    #         Cv, cdims = MRA_DCT.coeff_list2vec(C0)
+    #         Cl = C0
+
+    #     M0 = []
+    #     for n,c in enumerate(Cl):
+    #         toto = np.zeros_like(c, dtype=bool)
+    #         l = self._kn[n]
+    #         toto[:, l:-l] = True
+    #         M0.append(toto)
+    #     M, _ = self.coeff_list2vec(M0)
+
+    #     dim = Cl[0].shape[1]
+    #     if keepdc:
+    #         S0 = Tools.shrinkage_percentile(Cv[dim:], p, soft=soft)
+    #         S = np.hstack([Cv[:dim], S0])
+    #     else:
+    #         S = Tools.shrinkage_percentile(Cv, p, soft=soft)
+
+    #     Ct = MRA_DCT.coeff_vec2list(S, cdims)
+
+
+    #         # s, _ = Tools.shrinkage_percentile(c, p, soft=softmode)
+    #         s, _ = Tools.shrinkage_nfirst(c, int(p*c.size), soft=soft)
+    #         Ct.append(s)
+
+    #     return Ct
+
+    def post_processing(self, Cv):
+        """post-processing of coefficients"""
+
+        Ca, Cd = self.coeff_vec2list(self.clear_boundary(Cv))  # clear the boundary coefficients
+        Ra, Rd = self.restriction_list(Ca, Cd, mode='right')  # make causal
+        # Alignement of coefficients
+        Ra = np.roll(Ra, -self._kl[0]//2)
+        Rd = [np.roll(c, -self._kl[n]//2, axis=1) for n, c in enumerate(Rd)]  # aligned coefficient
+        return Ra, Rd
+
+    def feature_extraction(self, Ca, Cd, nbins=4, keepdc=True, absflag=True, logflag=False, dflag=True, ddflag=True, cdim=3, vthresh=None):
+        """
+        Args:
+            Ca (1d array): vector of approximation coefficients
+            Cd (list of 2d array): detail coefficients
+            nbins (int): number of the first bins to use
+        """
+        if cdim is None:
+            assert 0. <= vthresh <=1.
+
+        # Concatenation of Ca and Cd
+        X0 = [c.copy() for c in Cd]
+        X0[0] = np.vstack([Ca, Cd[0]])
+
+        # check if all scales have the same length
+        toto = np.asarray([x.shape[1] for x in X0])
+        sflag = np.all(toto==toto[0])
+
+        # Mel scale windowing
+        # bins = Tools.logscale_bin(nfreq, scaling=scaling, nbins=nbins+1)[:-1]  # nbins+1 and [:-1] to remove the last frequency from the scale
+        bins = Tools.logscale_bin(self.nfreq, scaling=self.scaling)[:nbins]
+        func = lambda x:Tools.triangle_windowing(x, bins)
+
+        M0 = []
+        for n, x in enumerate(X0):
+            if keepdc:
+                c = x.copy()
+                if n==0:
+                    c[0,:] = Stat.centralize(np.atleast_2d(c[0,:]))
+                    # c[0,:] = Stat.normalize(np.atleast_2d(c[0,:]))
+            else:
+                c = x[1:,:].copy() if n==0 else x.copy()  # drop the DC component which is the first row of X0[0]
+            if absflag:
+                v = np.apply_along_axis(func, 0, np.abs(c))
+                dv = np.abs(np.diff(v, axis=1))
+                ddv = np.abs(np.diff(v, 2, axis=1))
+                # dv = np.apply_along_axis(func, 0, np.abs(np.diff(c, axis=1)))
+                # ddv = np.apply_along_axis(func, 0, np.abs(np.diff(c, 2, axis=1)))
+                if logflag:
+                    v = np.log(v + 1e-10)
+                    dv = np.log(dv + 1e-10)
+                    ddv = np.log(ddv + 1e-10)
+            else:
+                v = np.apply_along_axis(func, 0, c)
+                dv = np.apply_along_axis(func, 0, np.diff(c, axis=1))
+                ddv = np.apply_along_axis(func, 0, np.diff(c, 2, axis=1))
+
+            h = [v[:,:-2]]
+            if dflag:
+                h.append(dv[:,:-1])
+            if ddflag:
+                h.append(ddv)
+            M0.append(np.vstack(h)*(self.scaling**n))
+
+        # feature
+        if sflag:
+            # all scales have the same length, apply pca overall
+            M = np.vstack(M0)
+            # drop all zero column
+            idx = np.mean(np.abs(M), axis=0) < 1e-8
+            M = M[:, ~idx]
+            _, U, S = Stat.pca(M, nc=None, corrflag=False)
+            F = np.hstack([S[:cdim], U[:,:cdim].flatten(order='F')])  # combine the singular values with the vectors
+        else:
+            # scales have different length, apply pca per scale
+            F0 = []
+            for M in M0:
+                # drop all zero column
+                idx = np.mean(np.abs(M), axis=0) < 1e-8
+                M = M[:, ~idx]
+                _, U, S = Stat.pca(M, nc=None, corrflag=corrflag)
+
+                # if cdim is None: # if cdim is not given, use vthresh to determine it
+                #     toto = np.cumsum(S) / np.sum(S)
+                #     cdim = find(cumsum(S/np.sum(S))>1-vthresh)[0]
+                # toto = np.hstack([S, U.flatten(order='F')])
+                toto = U[:,:cdim].flatten(order='F')
+                F0.append(toto)
+            F = np.hstack(F0)  # combine the singular values with the vectors
+        return F, M0
 

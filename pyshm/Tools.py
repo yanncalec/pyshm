@@ -511,7 +511,32 @@ def shrinkage(X0, t, soft=True):
     Y = np.zeros_like(X)
     idx = np.abs(X)>=t
     Y[idx] = np.abs(X[idx])-t if soft else np.abs(X[idx])
-    return Y*np.sign(X), idx
+    return Y*np.sign(X)
+
+
+def shrinkage_nfirst(X0, n, soft=True):
+    """Shrinkage by a given threshold.
+
+    Args:
+        X0 (array): input
+        n (int): number of non-zeros to keep
+        soft (bool): hard or soft shrinkage
+    Returns:
+        Thresholded array
+    """
+    assert n>=0 and n<=X0.size
+    X = X0.flatten().copy()
+    X[np.isnan(X)] = 0  # remove all nans
+
+    aX = np.abs(X)
+    sX = np.sign(X)
+    sidx = np.argsort(aX)[::-1]
+    Y = np.zeros_like(X)
+    if soft:
+        Y[sidx[:n]] = (aX[sidx[:n]] - aX[sidx[n]]) * sX[sidx[:n]]
+    else:
+        Y[sidx[:n]] = X[sidx[:n]]
+    return Y.reshape(X0.shape)
 
 
 def _percentile(X0, ratio):
@@ -526,7 +551,7 @@ def _percentile(X0, ratio):
     X = X0.copy().flatten()
     X[np.isnan(X)] = 0  # remove all nans
 
-    idx = np.argsort(X)  # increasing order sort
+    idx = np.argsort(X)[::-1]  # increasing order sort
     nz0 = int(np.floor(len(idx) * ratio))
     nz1 = int(np.ceil(len(idx) * ratio))
     if nz0==nz1==0:
@@ -537,26 +562,28 @@ def _percentile(X0, ratio):
         return np.mean(X[idx[nz0:nz1+1]])
 
 
-def shrinkage_percentile(X0, thresh, soft=True):
+def shrinkage_percentile(X0, p, soft=True):
     """Shrinkage by a given percentage of nonzeros.
 
     Args:
         X0 (1d array): input
-        thresh (float): percentage of nonzeros to keep, eg. thresh=0.1 will keep the 10\% largest coefficients (in magnitude)
+        p (float): percentage of nonzeros to keep, eg. p=0.1 will keep the 10\% largest coefficients (in magnitude)
         soft (bool): hard or soft shrinkage
     Returns:
         Thresholded array
     """
-    assert(X0.ndim==1)
-    assert(0<=thresh<=1)
+    assert(0<=p<=1)
 
-    if thresh == 1.0:
-        return X0
-    elif thresh == 0.0:
-        return np.zeros_like(X0)
+    if p == 1.0:
+        Y = X0
+    elif p == 0.0:
+        Y = np.zeros_like(X0)
     else:
-        v = _percentile(np.abs(X0), thresh)
-        return shrinkage(X0, v, soft=soft)
+        # n = int(X0.size * p)
+        # Y = shrinkage_nfirst(X0, n, soft=soft)  # <- Careful!
+        v = _percentile(np.abs(X0), p)
+        Y = shrinkage(X0, v, soft=soft)
+    return Y
 
 
 #### Outliers and detection ####
@@ -896,7 +923,7 @@ cumstd = along_axis(cumop(nan_safe(np.std)))
 
 def logscale_bin(N, scaling=2):
     """
-    Uniformly split the integers 0,1,..N-1 into nbins groups in the logarithmic scale.
+    Uniformly split the integers 0,1,..N into nbins groups in the logarithmic scale.
 
     Args:
         N (int): input
@@ -904,7 +931,7 @@ def logscale_bin(N, scaling=2):
     Return:
         center of bins
     """
-    x = N-1
+    x = N
     v = []
     while True:
         x = x//scaling
