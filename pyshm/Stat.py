@@ -61,6 +61,19 @@ def cov(X0, Y0, W=None):
     return np.asarray(C)
 
 
+def robust_std(x0, ratio=3.):
+    """Robust std.
+    """
+    x1 = x0.flatten() - np.mean(x0)
+    idx = np.abs(x1) < ratio * np.std(x1)
+#     idx = np.abs(x1) > ratio
+#     return np.std(x1), []
+#     return np.std(x1[idx]), np.where(~idx)[0]
+    oidx = np.where(~idx)[0]  # index of outliers
+    v = np.std(x1[idx]) if np.any(idx) else np.std(x1)
+    return v, oidx
+
+
 def corr(X0, Y0, W=None):
     """Reweighted correlation matrix.
     """

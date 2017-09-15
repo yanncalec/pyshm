@@ -736,14 +736,15 @@ class MRA_DCT(object):
         """
         Remark: information about dimension and number of boundary-crossing elements are updated after each call
         """
+        assert X0.ndim == 1
+
         if lvl is None:
             lvl = self.maxlevel(len(X0), self.scaling)
 
         (Ca, Cd), _, self._bn = self._analysis(X0, self.scaling, self.kernels, lvl=lvl)
         Cv, self._cdims = self.coeff_list2vec(Ca, Cd)  # _cdims[n] is the dimension of Cd[n]
 
-        if self._dimc is None:  # first application
-            self._dimc = len(Cv)
+        self._dimc = len(Cv)
 
         if self._dimx is None:  # first application
             self._dimx = len(X0)
@@ -870,8 +871,8 @@ class MRA_DCT(object):
             mask, maska, maskd = np.ones(len(self._vmask), dtype=bool), np.ones(len(self._vmaska), dtype=bool), np.ones(len(self._vmaskd), dtype=bool)
 
         if keepdc:
-            Ca = C0[:self._cdims[0][1]]
-            Cdv = C0[self._cdims[0][1]:]
+            Ca = C0[:self._cdims[0][1]].copy()
+            Cdv = C0[self._cdims[0][1]:].copy()
             Cdv[maskd] = Tools.shrinkage_percentile(Cdv[maskd], p, soft=soft)
             Cv = np.hstack([Ca, Cdv])
         else:
@@ -879,7 +880,7 @@ class MRA_DCT(object):
             Cv[mask] = Tools.shrinkage_percentile(Cv[mask], p, soft=soft)
         return Cv
 
-    def denoising(self, x0, p, lvl=None, soft=False, keepdc=True, mode='valid'):
+    def denoising(self, x0, p, lvl=None, soft=False, keepdc=True, mode='valid', cb=True):
         if lvl is None:
             lvl = self.maxlevel(len(x0), self.nfreq, self.scaling, c=4)
 
@@ -889,14 +890,19 @@ class MRA_DCT(object):
         # Shrinkage
         cs = self.shrinkage(c0, p, soft=soft, keepdc=keepdc, mode=mode)
 
-        # Synthesis
-        xs = self.synthesis(cs, ns=len(x0))
+        if cb:
+            cs = self.clear_boundary(cs)
+            xs = self.synthesis(cs, ns=len(x0))
+        else:
+            # Synthesis
+            xs = self.synthesis(cs, ns=len(x0))
+
         err = x0 - xs
 
         # Synthesis may contain Gibbs effect => truncation of result
         # Remark: the length of truncation comes from observation
-        ss = scipy.std(xs[self.nfreq:-self.nfreq])
-        sn = scipy.std(err[self.nfreq:-self.nfreq])
+        ss = scipy.var(xs[self.nfreq:-self.nfreq])
+        sn = scipy.var(err[self.nfreq:-self.nfreq])
         snr = 10*np.log10(ss/sn)
 
         return xs, (c0, cs), snr
@@ -1068,6 +1074,40 @@ class MRA_DCT(object):
         X0 = Xlist[-1][:-(M-1)] if ns is None else Xlist[-1][:ns]
 
         return X0, Xlist
+
+    def feature_extraction(self, C0, nbins=3, netrm=5):
+        W = []
+        for c in C0:
+            # log-scale triangle windowing in the frequency space
+            cf = Tools.logscale_triangle_windowing(c, nbins, self.scaling)
+            # find the N largest local extrema of the windowed coefficients in the time space (in chronological order)
+            # cf = c[:nbins, :]
+            cidx = Tools.local_extrema(cf, N=netrm)
+            W0 = []
+            for v, t0 in zip(cf, cidx):
+                w = np.zeros(netrm)
+                toto = v[t0[t0!=-1]]  # -1 in index means no extrema
+                w[:len(toto)] = toto
+                W0.append(w)
+            W.append(np.asarray(W0).flatten())
+        return np.asarray(W)
+
+    # def feature_extraction(self, C0, nbins=3, netrm=5):
+    #     W = []
+    #     for c in C0:
+    #         # log-scale triangle windowing in the frequency space
+    #         cf = Tools.logscale_triangle_windowing(c, nbins, self.scaling)
+    #         # find the N largest local extrema of the windowed coefficients in the time space (in chronological order)
+    #         # cf = c[:nbins, :]
+    #         cidx = Tools.local_extrema(cf, N=netrm)
+    #         W0 = []
+    #         for v, t0 in zip(cf, cidx):
+    #             w = np.zeros(netrm)
+    #             toto = v[t0[t0!=-1]]  # -1 in index means no extrema
+    #             w[:len(toto)] = toto
+    #             W0.append(w)
+    #         W.append(np.asarray(W0).flatten())
+    #     return np.asarray(W)
 
 
 class MRA_DCT_TAT(MRA_DCT):
@@ -1245,14 +1285,15 @@ class MRA_DCT_TAT(MRA_DCT):
 
         return X0, Xlist
 
-    def post_processing(self, Cv):
+    def post_processing(self, Cv, centered=False):
         """post-processing of coefficients"""
 
         Ca, Cd = self.coeff_vec2list(self.clear_boundary(Cv))  # clear the boundary coefficients
         Ra, Rd = self.restriction_list(Ca, Cd, mode='right')  # make causal
-        # Alignement of coefficients
-        # Ra = np.roll(Ra, -self._kl[0]//2)
-        # Rd = [np.roll(c, -self._kl[n]//2, axis=1) for n, c in enumerate(Rd)]  # aligned coefficient
+        if centered:
+            # Alignement of coefficients
+            Ra = np.roll(Ra, -self._kl[0]//2)
+            Rd = [np.roll(c, -self._kl[n]//2, axis=1) for n, c in enumerate(Rd)]  # aligned coefficient
         return Ra, Rd
 
     def feature_extraction(self, Ca, Cd, nbins=4, keepdc=True, absflag=True, logflag=False, dflag=True, ddflag=True, cdim=3, vthresh=None):
@@ -1338,4 +1379,3 @@ class MRA_DCT_TAT(MRA_DCT):
                 F0.append(toto)
             F = np.hstack(F0)  # combine the singular values with the vectors
         return F, M0
-

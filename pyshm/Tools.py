@@ -16,7 +16,7 @@ import datetime
 import inspect
 from functools import wraps
 
-
+from . import Stat
 #### Functional operators ####
 
 def nan_safe(func):
@@ -286,6 +286,37 @@ UL_filter_boundary = lambda X,wsize: U_filter_boundary(L_filter_boundary(X,wsize
 LU_filter = lambda X,wsize: L_filter(U_filter(X,wsize),wsize)
 LU_filter_boundary = lambda X,wsize: L_filter_boundary(U_filter_boundary(X,wsize),wsize)
 LU_mean = lambda X,wsize: (L_filter(X,wsize) + U_filter(X,wsize))/2
+
+
+def U_and_L_filter(X, wsize=1):
+    """Non-linear upper and lower filter.
+
+    This filter applies the U and L filter in one call.
+
+    Args:
+        X (1d array): input
+        wsize (int): size of the moving window
+    """
+    assert(X.ndim==1)
+
+    nX = len(X)
+    Yu = np.zeros_like(X)
+    Yl = np.zeros_like(X)
+
+    for tidx in range(nX):
+        u = np.zeros(wsize+1, X.dtype)
+        l = np.zeros(wsize+1, X.dtype)
+
+        for sidx in range(0, wsize+1):
+            tmin = max(0, sidx-wsize+tidx)
+            tmax = min(nX, tmin+wsize+1)
+            u[sidx] = X[tmin:tmax].max()
+            l[sidx] = X[tmin:tmax].min()
+
+        Yu[tidx] = u.min()
+        Yl[tidx] = l.max()
+
+    return Yu, Yl
 
 
 def U_filter(X, wsize=1):
@@ -587,6 +618,42 @@ def shrinkage_percentile(X0, p, soft=True):
 
 
 #### Outliers and detection ####
+
+def detect_oscillations(x0, order=1, wsize=1, minlen=20, ratio=2.):
+    # index of local extrema
+    idx0 = scipy.signal.argrelmax(x0,order=order)[0]
+    idx1 = scipy.signal.argrelmin(x0,order=order)[0]
+    idx = np.sort(np.concatenate([idx0, idx1]))
+    P = []
+
+    if len(idx)>0:
+        # separate the indexes into groups by testing outliers
+        didx = np.hstack([0, np.diff(idx)])
+        uu, ll = U_and_L_filter(didx, wsize=wsize)
+        dd = uu-ll
+    #     tt = ratio*np.median(dd)  # this can be 0!
+    #     sd = np.where(dd > tt)[0]
+        tt, sd = Stat.robust_std(dd, ratio=ratio)
+#         print(dd, sd)
+#         sd = []
+        sidx = np.split(idx, sd)
+#         print(sidx)
+        for s in sidx:
+#             print(s)
+            if len(s) > minlen:
+                se = np.sign(x0[s])  # sign of local extrema
+                ia = find_altsign(se, minlen=minlen)  # interval of alternative-signs
+                ip = [s[t0:t1] for t0,t1 in ia]
+                P += ip  # period of oscillation of each interval
+    #             P.append(ip)
+#     return P, idx, sidx, sd, dd
+    return P
+
+
+def detect_outliers(x0, ratio=5.):
+    x1 = x0.flatten() - np.mean(x0)
+    return np.abs(x1) > ratio * Stat.robust_std(x1, ratio=2.)
+
 
 def remove_plateau_jumps(y0, wsize=10, bflag=False, thresh=5., dratio=0.5):
     """Remove plateau-like or sawtooth-like jumps.
@@ -941,14 +1008,7 @@ def logscale_bin(N, scaling=2):
     return v[::-1]
 
 
-def triangle_windowing(x, bins):
-    """
-    Triangle windowing of an array according to given bins.
-
-    Args:
-        x (1d array): input
-        bins (1d array): indices of center of triangle in a strictly increasing order
-    """
+def _triangle_windowing(x, bins):
     bins = np.asarray(bins)
     assert np.all(np.diff(bins)>0)  #
 
@@ -966,3 +1026,56 @@ def triangle_windowing(x, bins):
 #         print(t0,t,t1)
         y.append(v)
     return np.asarray(y)
+
+
+def triangle_windowing(X, bins, axis=0):
+    """
+    Triangle windowing of an array according to given bins.
+
+    Args:
+        X (ndarray): input
+        bins (1d array): indices of center of triangle in a strictly increasing order
+        axis (int): axis along which to apply the function
+    """
+    func = lambda x:_triangle_windowing(x, bins)
+    return np.apply_along_axis(func, axis, X)
+
+
+def logscale_triangle_windowing(X, nbins, scaling, axis=0):
+    """
+    Log-scale triangle windowing of an array with a given number of bins.
+
+    Args:
+        X (ndarray): input
+        nbins (int): number of bins
+        scaling (int): scaling factor
+    """
+    bins = logscale_bin(X.shape[axis], scaling=scaling)[:nbins]
+    return triangle_windowing(X, bins, axis=axis)
+
+
+def _local_extrema(x, N=5):
+    """Find the N largest local extrema of x.
+    Returns:
+        A: indexes of the N largest local extrema in chronological order
+        B: indexes of all local extrema
+    """
+    assert x.ndim == 1
+    # find local extrema
+    idx_min = scipy.signal.argrelmin(x)[0]
+    idx_max = scipy.signal.argrelmax(x)[0]
+    idx = np.sort(np.concatenate([idx_min, idx_max]))  # all extrema in chronological order
+    lidx = -1 * np.ones(N, dtype=int)
+    sidx = np.argsort(np.abs(x[idx]))[::-1][:N]  # in decreasing order of magnitude
+    lidx[:len(sidx)] = np.sort(idx[sidx])
+    return lidx.astype(np.int)
+
+
+def local_extrema(x, N=5, axis=1):
+    """Find the N largest local extrema of x.
+    Returns:
+        A: indexes of the N largest local extrema in chronological order
+        B: indexes of all local extrema
+    """
+    func = lambda x:_local_extrema(x, N=N)
+    return np.apply_along_axis(func, axis, x)
