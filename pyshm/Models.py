@@ -977,7 +977,8 @@ class MRA_DCT(object):
         toto = []
         for l in range(M):
             cst = M if l==0 else M/np.sqrt(2)  # <- or /np.sqrt(scaling) ?
-            toto.append(np.cos(np.pi*(np.arange(M)+0.5)*l/M)/cst)
+            toto.append(np.cos(np.pi*(np.arange(M)+0.5)*l/M)/cst)  # DCT-II as in the original paper
+            # toto.append(np.cos(np.pi*(np.arange(M)+0.5)*(l+0.5)/M)/cst)  # DCT-IV
         return np.asarray(toto)
 
     @staticmethod
@@ -1075,21 +1076,66 @@ class MRA_DCT(object):
 
         return X0, Xlist
 
-    def feature_extraction(self, C0, nbins=3, netrm=5):
+    def post_processing(self, Cv):
+        """post-processing of coefficients"""
+        Ca, Cd = self.coeff_vec2list(self.clear_boundary(Cv))  # clear the boundary coefficients
+        Ra, Rd = self.restriction_list(Ca, Cd, mode='right')  # make causal
+        return Ra, Rd
+
+    # def sys_invariant(self, C0, eps=1e-7, method='diff'):
+    #     """Transform the feature to make it invariant to the underlying linear system"""
+    #     if method=='diff':
+    #         C1 = [np.diff(c, axis=1) for c in C0]
+    #     elif method=='mean':
+    #         C1 = [c - np.mean(c, axis=1)[:,np.newaxis] for c in C0]
+    #     else:
+    #         raise ValueError('Unknown method.')
+
+    #     if isinstance(C0, np.ndarray)
+    #         return np.asarray(C1)
+    #     else:
+    #         return C1
+
+    def logscale_tw(self, C0, nbins=3, aflag=False):
+        """Log-scale triangle windowing.
+
+        Args:
+            C0: list of matrices of detail coefficients
+            nbins (int): number of bins in log scale
+        """
+        C1 = []
+        for c0 in C0:
+            c1 = np.abs(c0) if aflag else c0
+            toto = Tools.logscale_triangle_windowing(c1, nbins, self.scaling, axis=0)
+            C1.append(toto)
+
+        if isinstance(C0, np.ndarray):
+            return np.asarray(C1)
+        else:
+            return C1
+
+    def feature_extraction(self, Cf, Ne=5, cord=True):
+        """Feature extration.
+
+        Args:
+            Cf: list of matrices of detail coefficients
+            Ne (int): number of largest extrema to keep
+            cord (bool): if True the result will be in chronological order, otherwise it will be in a decreasing order of magnitude
+        """
         W = []
-        for c in C0:
-            # log-scale triangle windowing in the frequency space
-            cf = Tools.logscale_triangle_windowing(c, nbins, self.scaling)
+        for cf in Cf:
+            # # log-scale triangle windowing in the frequency space
+            # cf = Tools.logscale_triangle_windowing(c, nbins, self.scaling, axis=0)
             # find the N largest local extrema of the windowed coefficients in the time space (in chronological order)
             # cf = c[:nbins, :]
-            cidx = Tools.local_extrema(cf, N=netrm)
+            cidx = Tools.find_N_local_extrema(cf, Ne, cord=cord, axis=1)
             W0 = []
             for v, t0 in zip(cf, cidx):
-                w = np.zeros(netrm)
+                w = np.zeros(Ne)
                 toto = v[t0[t0!=-1]]  # -1 in index means no extrema
                 w[:len(toto)] = toto
                 W0.append(w)
-            W.append(np.asarray(W0).flatten())
+            W.append(W0)
         return np.asarray(W)
 
     # def feature_extraction(self, C0, nbins=3, netrm=5):
@@ -1287,16 +1333,71 @@ class MRA_DCT_TAT(MRA_DCT):
 
     def post_processing(self, Cv, centered=False):
         """post-processing of coefficients"""
-
         Ca, Cd = self.coeff_vec2list(self.clear_boundary(Cv))  # clear the boundary coefficients
         Ra, Rd = self.restriction_list(Ca, Cd, mode='right')  # make causal
-        if centered:
-            # Alignement of coefficients
-            Ra = np.roll(Ra, -self._kl[0]//2)
-            Rd = [np.roll(c, -self._kl[n]//2, axis=1) for n, c in enumerate(Rd)]  # aligned coefficient
-        return Ra, Rd
 
-    def feature_extraction(self, Ca, Cd, nbins=4, keepdc=True, absflag=True, logflag=False, dflag=True, ddflag=True, cdim=3, vthresh=None):
+        # if restricted:
+        #     Ra, Rd = self.restriction_list(Ca, Cd, mode='right')  # make causal
+        # else:
+        #     Ra, Rd = Ca, Cd
+
+        if centered:  # correct on signal with jumps
+            # Alignement of coefficients
+            Ra = np.roll(Ra, -self._kl[0])
+            Rd = [np.roll(c, -self._kl[n], axis=1) for n, c in enumerate(Rd)]  # aligned coefficient
+        # if centered:
+        #     # Alignement of coefficients
+        #     Ra = np.roll(Ra, -self._kl[0]//2)
+        #     Rd = [np.roll(c, -self._kl[n]//2, axis=1) for n, c in enumerate(Rd)]  # aligned coefficient
+        return Ra, np.asarray(Rd)
+
+    # def detect_event_discrete(self, Cd, wsize=50, thresh=1):
+    #     """Detection of event using detail coefficients
+    #     Args:
+    #         Cd (list of 2d array): list of detail coefficients
+    #     Returns:
+    #         Erng: list of index range of events
+    #         mask: indicator array of events
+    #         W: probability of events
+    #     """
+    #     W = np.zeros(Cd[0].shape[1])
+    #     for c in Cd:
+    #         v = Tools.U_filter(np.sqrt(np.sum(c**2, axis=0))>0, wsize=wsize) * 1.
+    #         W += v
+
+    #     mask = Tools.U_filter(W>thresh, wsize=wsize)
+    #     # mask = W > thresh
+    #     Erng = Tools.find_block_true(mask)
+    #     return Erng, mask, W
+
+    def detect_event(self, Cd, wsize=100, thresh=1e-5):
+        """Detection of event using detail coefficients
+        Args:
+            Cd (list of 2d array): list of detail coefficients
+        Returns:
+            Erng: list of index range of events
+            mask: indicator array of events
+            W: probability of events
+        """
+        # This is the continuous version of the method, which works better than the discrete version
+
+        # version 1:
+        W = np.sqrt(np.sum(np.sum(np.asarray(Cd)**2, axis=0), axis=0))
+
+        # version 2: per scale normalization
+        # W = np.zeros(Cd[0].shape[1])
+        # for c in Cd:
+        #     # v = Tools.U_filter(np.sqrt(np.sum(c**2, axis=0)), wsize=wsize)
+        #     n = np.sum(c**2)
+        #     v = np.sum(c**2, axis=0)
+        #     W += (v/n if n>0 else v)
+
+        W /= np.sum(W)
+        mask = Tools.LU_filter(W > thresh, wsize=wsize)
+        Erng = Tools.find_block_true(mask)
+        return Erng, mask, W
+
+    def feature_extraction_pca(self, Ca, Cd, nbins=4, keepdc=True, absflag=True, logflag=False, dflag=True, ddflag=True, cdim=3, vthresh=None):
         """
         Args:
             Ca (1d array): vector of approximation coefficients

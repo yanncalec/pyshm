@@ -1054,28 +1054,45 @@ def logscale_triangle_windowing(X, nbins, scaling, axis=0):
     return triangle_windowing(X, bins, axis=axis)
 
 
-def _local_extrema(x, N=5):
-    """Find the N largest local extrema of x.
+def find_local_extrema(x0, cord=True, N=None):
+    """Find the positions of the local extrema of x.
+    Args:
+        x0 (1d array): input
+        N (int): if given the result will be the first N largest local extrema
+        cord (bool): if True the result will be in chronological order, otherwise it will be in a decreasing order of magnitude
     Returns:
-        A: indexes of the N largest local extrema in chronological order
-        B: indexes of all local extrema
+        A: array containing the indexes of the local extrema.
     """
-    assert x.ndim == 1
+    assert x0.ndim == 1
+
+    # remove first consecutive duplicated terms in order to correct the behavior of argrelmxx
+    idx0 = np.where(np.hstack([True, ~np.isclose(np.diff(x0),0)]))[0]
+    x = x0[idx0]
+
     # find local extrema
     idx_min = scipy.signal.argrelmin(x)[0]
     idx_max = scipy.signal.argrelmax(x)[0]
     idx = np.sort(np.concatenate([idx_min, idx_max]))  # all extrema in chronological order
-    lidx = -1 * np.ones(N, dtype=int)
-    sidx = np.argsort(np.abs(x[idx]))[::-1][:N]  # in decreasing order of magnitude
-    lidx[:len(sidx)] = np.sort(idx[sidx])
-    return lidx.astype(np.int)
+    sidx = np.argsort(np.abs(x[idx]))[::-1]  # in decreasing order of magnitude
+    # lidx = np.ones(len(sidx), dtype=int)  # final output
+    lidx =  np.sort(idx[sidx]) if cord else idx[sidx]  # sort again to be in chronological order
+    # lidx = lidx.astype(np.int)
+    if N is not None:
+        # N = min(N, len(lidx))
+        oidx = -1 * np.ones(N, dtype=int)
+        toto = idx0[lidx][:N]
+        oidx[:len(toto)] = toto
+    else:
+        oidx = idx0[lidx]
+    return oidx
 
 
-def local_extrema(x, N=5, axis=1):
+def find_N_local_extrema(x, N, cord=True, axis=-1):
     """Find the N largest local extrema of x.
     Returns:
-        A: indexes of the N largest local extrema in chronological order
-        B: indexes of all local extrema
+        A: indexes of the N largest local extrema in chronological or magnitude decreasing order
     """
-    func = lambda x:_local_extrema(x, N=N)
+    assert N>0
+    func = lambda x: find_local_extrema(x, cord=cord, N=N)
     return np.apply_along_axis(func, axis, x)
+

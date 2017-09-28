@@ -104,13 +104,24 @@ def normalize(X0, W=None):
     return Xn
 
 
+def diag_normalize(X0, W=None):
+    """Per dimension normalization, safe wrt singular dimension.
+    """
+    Xc = centralize(X0, W=W)
+    Cm = cov(X0, X0, W=W)
+    v = np.sqrt(np.diag(Cm))
+    idx = np.isclose(v,0)
+    u = np.zeros(Cm.shape[0])
+    u[~idx] = 1/v[~idx]
+    return np.diag(u) @ Xc
+
+
 def pca(X, W=None, nc=None, corrflag=False, centerflag=False):
     """Principal Component Analysis.
 
     Args:
         X (2d array): each row represents a variable and each column represents an observation
         nc (int): number of components to hold
-        sflag (bool): if True apply sign correction to the principal vectors
     Returns:
         C, U : coefficients and corresponded principal directions
     """
