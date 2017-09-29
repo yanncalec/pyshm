@@ -928,3 +928,37 @@ def detect_periods_of_instability(hexp, hthresh, hgap=0, mask=None):
     return [b for b in blk if b[1]-b[0] > hgap]
 
 
+def detect_oscillations(x0, order=1, wsize=1, minlen=20, ratio=2.):
+    # index of local extrema
+    idx0 = scipy.signal.argrelmax(x0,order=order)[0]
+    idx1 = scipy.signal.argrelmin(x0,order=order)[0]
+    idx = np.sort(np.concatenate([idx0, idx1]))
+    P = []
+
+    if len(idx)>0:
+        # separate the indexes into groups by testing outliers
+        didx = np.hstack([0, np.diff(idx)])
+        uu, ll = Tools.U_and_L_filter(didx, wsize=wsize)
+        dd = uu-ll
+    #     tt = ratio*np.median(dd)  # this can be 0!
+    #     sd = np.where(dd > tt)[0]
+        tt, sd = robust_std(dd, ratio=ratio)
+#         print(dd, sd)
+#         sd = []
+        sidx = np.split(idx, sd)
+#         print(sidx)
+        for s in sidx:
+#             print(s)
+            if len(s) > minlen:
+                se = np.sign(x0[s])  # sign of local extrema
+                ia = Tools.find_altsign(se, minlen=minlen)  # interval of alternative-signs
+                ip = [s[t0:t1] for t0,t1 in ia]
+                P += ip  # period of oscillation of each interval
+    #             P.append(ip)
+#     return P, idx, sidx, sd, dd
+    return P
+
+
+def detect_outliers(x0, ratio=5.):
+    x1 = x0.flatten() - np.mean(x0)
+    return np.abs(x1) > ratio * robust_std(x1, ratio=2.)
