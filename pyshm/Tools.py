@@ -16,7 +16,6 @@ import datetime
 import inspect
 from functools import wraps
 
-from . import Stat
 #### Functional operators ####
 
 def nan_safe(func):
@@ -713,7 +712,7 @@ def detect_step_jumps(X0, method="diff", **kwargs):
         # X1 = LU_filter(np.asarray(X0), 24) # Apply first a LU filter
         X1 = pd.Series(X0)
         mX = X1.rolling(mwsize, min_periods=1, center=True).mean()
-        # mX = Stat.mwmean(X1, mwsize)
+        # mX = Stat.mwmean(X1, mwsize)  # possibly cyclic import
         dX = np.abs(np.hstack((0, np.diff(mX))))[::mwsize]
 
         sdX = np.sort(dX)
