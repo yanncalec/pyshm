@@ -159,7 +159,7 @@ setup(
     install_requires=[
     'numpy',
     'scipy',
-    'panda',
+    'pandas',
     # 'matplotlib>=2.0.2',
     # 'requests>=2.14.2',
     # # 'statsmodels>=0.8.0',

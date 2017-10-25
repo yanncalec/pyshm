@@ -44,7 +44,7 @@ def along_axis(func):
         Xr = Xm.reshape((-1,Xm.shape[-1]))  # reshape to a 2d array
         Yr = [] # np.zeros_like(Xr)
 
-        for n,x in enumerate(Xr):  # iteration on each row
+        for n,x in enumerate(Xr):  # row iteration
             Yr.append(func(x, *args, **kwargs))
 
         ydim = list(Xm.shape)
@@ -409,6 +409,45 @@ def L_filter_boundary(X, wsize=1):
 
 
 #### Datetime and time-series related ####
+
+def resampling_time_series(X, p='H', method='slinear'):
+    """Resampling of time series with a regular period.
+
+    Args:
+        X (pandas DataFrame or Series): input time series, X.index must be an object of DateTimeIndex.
+        p (str): period of resampling, by default 'H' (which stands for 'hour').
+        method (str): method of interpolation
+    Returns:
+        S (pandas DataFrame or Series): resampled time series (original time series augmented by resampled values)
+        Tstp (pandas DateTimeIndex): timestamps of resampled points
+        Nstp (pandas DateTimeIndex): timestamps of nan values
+    Notes:
+        `Y = S[Tstp]` gives the time series of regular period
+        `Y.loc[Nstp] = np.nan` restore nan values
+    """
+    # Timestamps of resampling
+    Tstp = pd.date_range(X.index[0].ceil(p), X.index[-1].floor(p), freq=p)
+
+    # Timestamps of NaN values
+    Y = X.resample(p).mean().loc[Tstp]
+    nidc = np.isnan(np.asarray(Y, dtype=float)).sum(axis=1)>0
+    # nidc = Tools.UL_filter_boundary(nidc, m) # index where no original observations exist on an interval of length m
+    Nstp = Tstp[nidc]
+
+    # Augmentation of the original time series
+    toto = np.zeros((len(Tstp),X.shape[1])) if X.ndim==2 else np.zeros(len(Tstp))
+    toto.fill(np.nan)
+    if isinstance(X, pd.DataFrame):
+        R=X.combine_first(pd.DataFrame(data=toto, index=Tstp, columns=X.columns))
+    elif isinstance(X, pd.Series):
+        R=X.combine_first(pd.Series(data=toto, index=Tstp))
+
+    # Resampling by interpolation
+    S = R.interpolate(method=method)  # linear interpolation may introduce artificial hidden frequency
+
+    # with the returned indexes one can select the subset of index to remove values due to interpolation on long intervals
+    return S, Tstp, Nstp
+
 
 def time_findgap(T0, dtuple=(0, 60*60, 0)):
     """Find gaps in a list of timestamps.

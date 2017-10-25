@@ -172,27 +172,33 @@ def cca(X0, Y0, W=None):
     return (A, Sa, iA), (B, Sb, iB), corr(A.T @ X, B.T @ Y)
 
 
-def percentile(X0, ratio):
-    """Compute the value corresponding to a percentile in an array.
+def percentile(X0, p):
+    """Compute the value corresponding to a percentile (increasing order) in an array.
 
     Args:
         X0 (nd array): input array
-        ratio (float): percentile
+        p (float): percentile, between 0. and 1.
+    Return:
+        value corresponding to the percentile p
     """
-    assert 0. <= ratio <= 1.
+    assert 0. <= p <= 1.
 
     X = X0.copy().flatten()
-    X[np.isnan(X)] = 0  # remove all nans
+    X = X[~np.isnan(X)]  # remove all nans
+    # X[np.isnan(X)] = 0   # fill all nans by zero
 
+    N = len(X)
     idx = np.argsort(X)  # increasing order sort
-    nz0 = int(np.floor(len(idx) * ratio))
-    nz1 = int(np.ceil(len(idx) * ratio))
+    nz0 = int(np.floor(N * p))
+    nz1 = int(np.ceil(N * p))
+
     if nz0==nz1==0:
-        return X[idx[0]]
-    if nz0==nz1==len(idx):
-        return X[idx[-1]]
+        v = X[idx[0]]
+    elif nz0==nz1==N:
+        v = X[idx[-1]]
     else:
-        return np.mean(X[idx[nz0:nz1+1]])
+        v = np.mean(X[idx[nz0:nz1]])
+    return v
 
 
 def local_statistics(X, mwsize, mad=False, causal=False, win_type='boxcar', drop=True):
