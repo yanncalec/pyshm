@@ -121,6 +121,7 @@ class MxDeconv:
         self.dord = dord
         self.smth = smth
         self.linear_trend = np.arange(self.Nt)/self.Nt*10
+        self.n_coefs = None  # number of coefficients
 
     def _prepare_data(self, mwsize=24, kzord=1, method='mean', causal=False):
         """Preparation of data.
@@ -201,6 +202,7 @@ class MxDeconv_LS(MxDeconv):
 
         self._fit_results = {'tidx0':tidx0, 'tidx1':tidx1, 'vthresh':vthresh, 'cdim':cdim, 'Nexp':Nexp, 'vreg':vreg, 'Amat':Amat, 'Cvec':Cvec, 'Err':Err, 'Sig':Sig, 'Amat0':Amat0}
         # self._fit_results = (Amat, Cvec, Amat0, Err, Sig)
+        self.n_coefs = Amat0.size
 
         return self._fit_results
 
@@ -220,6 +222,8 @@ class MxDeconv_LS(MxDeconv):
             Xcmv1 = Tools.dpvander(self.linear_trend, self.pord, 0)  # polynominal trend
             Xcmv = np.vstack([Xcmv0, Xcmv1[:(self.pord-self.dord+1),:]])  # input with polynomial trend
             # Xcmv[np.isnan(Xcmv)] = 0  # Remove nans will introduce large values around discontinuties
+            print(Xcmv1)
+            print(Cvec)
             Yflt = np.hstack([Amat, Cvec]) @ Xcmv
         else: # without the polynomial trend, ie, return A*X(t)
             Amat0 = self._fit_results['Amat0']
@@ -1496,7 +1500,7 @@ class PCRegression:
 
         # self._scaler = StandardScaler(with_std=False)
         self.regressor = regressor  # name of the regressor
-        if regressor=='ls':
+        if regressor=='lr':
             self._reg = LinearRegression(fit_intercept=True, normalize=False, copy_X=True, n_jobs=1)
         elif regressor=='ridge':
             alpha = 1e-6 if 'alpha' not in kwargs else kwargs['alpha']
@@ -1553,7 +1557,8 @@ class PCRegression:
 
         # method 1: manual computation
         yprd = X0 @ self.coef_ + self.intercept_
-        yprd[np.isnan(yprd)] = 0
+        # Uncomment the following line will make method 1 and 2 equivalent
+        # yprd[np.isnan(yprd)] = 0
 
         # # method 2: scikit-learn based
         # nidc = np.sum(np.isnan(X0), axis=-1) > 0  # nans indicator
@@ -1578,7 +1583,8 @@ class MRA_Regression:
         self.mode = mode  # mode of regression
         self._regs = None
         self._dimx = None  # number of features of the input variable
-        self.n_components = None
+        self.n_coefs_ = None  # number of coefficients per scale (depending on the mode)
+        self.n_coefs = None  # total number of coefficients
         self.nflag =  nflag  # per-scale normalization
         self._scalers = None  # per-scale scaler
 
@@ -1660,24 +1666,24 @@ class MRA_Regression:
         self._Xcof0, self._ycof0 = foo0  # raw coefficients
 
         self._regs = []
-        self.n_components = 0
+        self.n_coefs_ = []
 
         if self.mode=='full':
             for n, (cX, cy) in enumerate(zip(self._Xcof, self._ycof)):
                 if n==0:
-                    # reg = PCRegression(tol=tol_dc, regressor='ridge', alpha=alpha_dc)
-                    reg = PCRegression(tol=tol_dc, regressor=regressor, **kwargs)
+                    tol_ = tol if len(self._Xcof)==0 else tol_dc # if there is only approximation coeffs (or maxlvl==0), treat as detail coeffs
+                    reg = PCRegression(tol=tol_, regressor=regressor, **kwargs)
                 else:
                     reg = PCRegression(tol=tol, regressor=regressor, **kwargs)
                 reg.fit(cX, cy)
-                self.n_components += reg.n_components
+                self.n_coefs_.append(reg.n_components)
                 self._regs.append(reg)
         elif self.mode=='ad':
             # regression of the approximation coeffs
-            # reg = PCRegression(tol=tol_dc, regressor='ridge', alpha=alpha_dc)
-            reg = PCRegression(tol=tol_dc, regressor=regressor, **kwargs)
+            tol_ = tol if len(self._Xcof)==0 else tol_dc # if there is only approximation coeffs (or maxlvl==0), treat as detail coeffs
+            reg = PCRegression(tol=tol_, regressor=regressor, **kwargs)
             reg.fit(self._Xcof[0], self._ycof[0])
-            self.n_components += reg.n_components
+            self.n_coefs_.append(reg.n_components)
             self._regs.append(reg)
 
             # regression of all detail coeffs
@@ -1687,7 +1693,7 @@ class MRA_Regression:
                 # print(Xdcf.shape, ydcf.shape)
                 reg = PCRegression(tol=tol, regressor=regressor, **kwargs)
                 reg.fit(Xdcf, ydcf)
-                self.n_components += reg.n_components
+                self.n_coefs_.append(reg.n_components)
                 self._regs.append(reg)
         elif self.mode=='whole':
             # regression of all detail coeffs
@@ -1696,10 +1702,12 @@ class MRA_Regression:
             # print(Xall.shape, yall.shape)
             reg = PCRegression(tol=tol, regressor=regressor, **kwargs)
             reg.fit(Xall, yall)
-            self.n_components += reg.n_components
+            self.n_coefs_.append(reg.n_components)
             self._regs.append(reg)
         else:
             raise TypeError('Unknown mode: {}'.format(self.mode))
+
+        self.n_coefs = np.sum(self.n_coefs_)
 
     def predict(self, X):
         """
@@ -1712,8 +1720,6 @@ class MRA_Regression:
         Nt = X.shape[0]
 
         # preparation of data
-        # nidc = np.sum(np.isnan(X), axis=-1)>0  # nan indicator
-        # Xf = X.copy(); Xf[np.isnan(Xf)] = 0  # fill nan
         Xcmv = Tools.mts_cumview(X.T, self.lag).T
 
         # wavelet decomposition
@@ -1745,10 +1751,11 @@ class MRA_Regression:
         else:
             raise TypeError('Unknown mode: {}'.format(self.mode))
 
-        # ydim = [y.shape for y in yprc]
-        # print(ydim)
+        # # fill nans of the predicted coefficients by zero
+        # for y in yprc:
+        #     y[np.isnan(y)] = 0.
+
         yprd = pywt.waverec(yprc, self.wvlname)
-        # yprd[nidc] = np.nan
         return yprd[:Nt]
 
 

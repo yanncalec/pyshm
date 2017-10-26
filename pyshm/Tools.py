@@ -431,7 +431,7 @@ def resampling_time_series(X, p='H', method='slinear'):
     # Timestamps of NaN values
     Y = X.resample(p).mean().loc[Tstp]
     nidc = np.isnan(np.asarray(Y, dtype=float)).sum(axis=1)>0
-    # nidc = Tools.UL_filter_boundary(nidc, m) # index where no original observations exist on an interval of length m
+    nidc = UL_filter_boundary(nidc, 12) # index where no original observations exist on an interval of length m
     Nstp = Tstp[nidc]
 
     # Augmentation of the original time series
