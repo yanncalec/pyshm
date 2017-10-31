@@ -13,10 +13,11 @@ import pandas as pd
 import pykalman
 import pywt
 
-from sklearn.decomposition import PCA
 # from sklearn import cross_validation
-from sklearn.linear_model import LinearRegression, Ridge, RidgeCV, RANSACRegressor
+from sklearn.linear_model import LinearRegression, Ridge, RidgeCV, RANSACRegressor, TheilSenRegressor, Lasso, LassoCV,LassoLars, LassoLarsCV, OrthogonalMatchingPursuit, OrthogonalMatchingPursuitCV
+from sklearn.ensemble import BaggingRegressor, RandomForestRegressor
 from sklearn.preprocessing import StandardScaler, RobustScaler
+from sklearn.decomposition import PCA
 
 from . import Tools, Stat, Kalman
 # from pyshm import Tools, Stat, Kalman
@@ -222,8 +223,8 @@ class MxDeconv_LS(MxDeconv):
             Xcmv1 = Tools.dpvander(self.linear_trend, self.pord, 0)  # polynominal trend
             Xcmv = np.vstack([Xcmv0, Xcmv1[:(self.pord-self.dord+1),:]])  # input with polynomial trend
             # Xcmv[np.isnan(Xcmv)] = 0  # Remove nans will introduce large values around discontinuties
-            print(Xcmv1)
-            print(Cvec)
+            # print(Xcmv1)
+            # print(Cvec)
             Yflt = np.hstack([Amat, Cvec]) @ Xcmv
         else: # without the polynomial trend, ie, return A*X(t)
             Amat0 = self._fit_results['Amat0']
@@ -1380,14 +1381,16 @@ class MRA_DCT_TAT(MRA_DCT):
         return F, M0
 
 
+#### Scikit-Learn based ####
+
 class IRLS:
-    def __init__(self, pnorm=1, vreg=1e-6, fit_intercept=True, tol=1e-4, maxiter=10**3):
+    def __init__(self, pnorm=1, vreg=1e-6, fit_intercept=True, tol=1e-4, max_iter=10**3):
         assert pnorm>0
         self.pnorm = pnorm
         self.vreg = vreg
         self.fit_intercept = fit_intercept
         self.tol = tol
-        self.maxiter = maxiter
+        self.max_iter = max_iter
 
     def fit(self, X0, y, verbose=False):
         assert X0.ndim==2 and y.ndim==1
@@ -1402,7 +1405,7 @@ class IRLS:
         A = []; R = [0]; E = []
         w = np.ones(n_samples)
         # iterations
-        for n in range(self.maxiter):
+        for n in range(self.max_iter):
             coefs = la.inv(X.T @ np.diag(w) @ X) @ X.T @ (w * y)
             residual = y - X @ coefs
             w = np.power(np.maximum(self.vreg, np.abs(residual)), self.pnorm-2)
@@ -1437,7 +1440,7 @@ class RANSAC:
         # dy = np.diff(y)
         return True
 
-    def __init__(self, min_samples=0.1, stop_probability=1-1e-3, max_trials=10**3, nexp=10, method='median'):
+    def __init__(self, min_samples=0.2, stop_probability=1-1e-3, max_trials=10**3, nexp=10, method='median'):
         self.min_samples = min_samples
         self._reg = RANSACRegressor(min_samples=min_samples, stop_probability=stop_probability, max_trials=max_trials, is_data_valid=None)
         self.nexp = nexp
@@ -1469,42 +1472,86 @@ class RANSAC:
         return X @ self.coef_ + self.intercept_
 
 
+class LASSO:
+    def __init__(self, tol=1e-4, max_iter=10**4, debiasing=True, **kwargs):
+        self.debiasing = debiasing
+        # self._reg_cv = LassoLarsCV(max_iter=max_iter, fit_intercept=True, normalize=False, copy_X=True, cv=10, verbose=False, n_jobs=-1, positive=False) #, selection='random')
+        self._reg_cv = LassoCV(eps=1e-4, tol=tol, max_iter=max_iter, n_alphas=10**3, fit_intercept=True, normalize=False, copy_X=True, cv=10, verbose=False, n_jobs=-1, positive=False, random_state=None) #, selection='random')
+        self._reg_db = LinearRegression(fit_intercept=True, normalize=False, copy_X=True, n_jobs=-1)
+
+        self.coef_ = None
+        self.intercept_ = None
+        self.alpha_ = None
+        self.inz = None
+        self.nnz = None
+
+    def fit(self, X, y):
+        self._reg_cv.fit(X, y)
+        self.alpha_ = self._reg_cv.alpha_
+        self.inz = np.abs(self._reg_cv.coef_) > 0
+        self.nnz = np.sum(self.inz)
+        # print(self.nnz)
+
+        # if self.nnz==0:  # lasso failed to find non-zero solution
+        #     raise ValueError('LassoCV failed.')
+
+        if self.debiasing and self.nnz > 0:
+            self._reg_db.fit(X[:,self.inz], y)
+            self.coef_ = np.zeros(X.shape[-1])
+            self.coef_[self.inz] = self._reg_db.coef_
+            # print(self._reg_cv.coef_, self.coef_)
+            self.intercept_ = self._reg_db.intercept_
+        else:
+            self.coef_ = self._reg_cv.coef_
+            self.intercept_ = self._reg_cv.intercept_
+
+    def predict(self, X):
+        self.coef_ @ X + self.intercept_
+
+
 class PCRegression:
     """Principal components regression
 
     """
-    def __init__(self, tol=1e-3, n_components=None, regressor='ridge', **kwargs):
+    def __init__(self, loss=1e-3, n_components=None, regressor='ridge', **kwargs):
         """
         Args:
+            loss (float): tolerance rate for infomation loss
+            n_components (int): number of components (reduced dimension)
+            regressor (str): name of the underlying regressor
         """
-        self.tol = None
-        self.n_components = None
-        self._dimx = None
-        self._pca = None
+        self.loss = None  # tolerance rate for infomation loss
+        self.n_components = None  # desired number of components
+        self._dimx = None  # dimension of input variable
+        self._pca = None  # instance of PCA
         # self._scaler = None
-        self.coef_ = None
-        self.intercept_ = None
+        self.coef_ = None  # estimate of linear coefficients (before dimension reduction)
+        self.intercept_ = None  # estimate of bias
 
-        if n_components is None:
-            assert 0. <= tol < 1.
-            self.tol = tol
-            if tol == 0:
-                # use all components
-                self._pca = PCA(n_components=None)
-            else:
-                self._pca = PCA(n_components=1-self.tol)
+        if n_components is None:  # if desired dimension is not given
+            assert 0. <= loss < 1.
+            self.loss = loss
+            self._pca = PCA(n_components=None if loss==0 else 1-loss)
         else:
             assert n_components >= 1
             self.n_components = n_components
             self._pca = PCA(n_components=self.n_components)
 
         # self._scaler = StandardScaler(with_std=False)
-        self.regressor = regressor  # name of the regressor
+        self._reg_name = regressor  # name of the regressor
         if regressor=='lr':
-            self._reg = LinearRegression(fit_intercept=True, normalize=False, copy_X=True, n_jobs=1)
+            self._reg = LinearRegression(fit_intercept=True, normalize=False, copy_X=True, n_jobs=-1)
         elif regressor=='ridge':
             alpha = 1e-6 if 'alpha' not in kwargs else kwargs['alpha']
             self._reg = Ridge(alpha=alpha, fit_intercept=True, normalize=False, copy_X=True, solver='svd')
+        elif regressor=='theilsen':
+            tol = 1e-4 if 'tol' not in kwargs else kwargs['tol']
+            max_iter = 10**4 if 'max_iter' not in kwargs else kwargs['max_iter']
+            self._reg = TheilSenRegressor(fit_intercept=True, copy_X=True, max_subpopulation=1e4, n_subsamples=None, max_iter=max_iter, tol=tol, n_jobs=-1, verbose=False)
+        elif regressor=='lasso':
+            tol = 1e-4 if 'tol' not in kwargs else kwargs['tol']
+            max_iter = 10**4 if 'max_iter' not in kwargs else kwargs['max_iter']
+            self._reg = LASSO(tol=tol, max_iter=max_iter, fit_intercept=True, debiasing=True)
         elif regressor=='ransac':
             min_samples = 0.2 if 'min_samples' not in kwargs else kwargs['min_samples']
             nexp = 10**1 if 'nexp' not in kwargs else kwargs['nexp']
@@ -1517,8 +1564,22 @@ class PCRegression:
             pnorm = 1 if 'pnorm' not in kwargs else kwargs['pnorm']
             vreg = 1e-7 if 'vreg' not in kwargs else kwargs['vreg']
             # tol = 1e-4 if 'tol' not in kwargs else kwargs['tol']
-            maxiter = 10**3 if 'maxiter' not in kwargs else kwargs['maxiter']
-            self._reg = IRLS(pnorm=pnorm, vreg=vreg, tol=1e-5, maxiter=maxiter, fit_intercept=True)
+            max_iter = 10**3 if 'max_iter' not in kwargs else kwargs['max_iter']
+            self._reg = IRLS(pnorm=pnorm, vreg=vreg, tol=1e-5, max_iter=max_iter, fit_intercept=True)
+        # elif regressor=='bagging':
+        #     n_estimators = 1000 if 'n_estimators' not in kwargs else kwargs['n_estimators']
+        #     max_samples = .1 if 'max_samples' not in kwargs else kwargs['max_samples']
+        #     self._reg = BaggingRegressor(base_estimator=LinearRegression(), bootstrap=False, n_estimators=n_estimators, max_samples=max_samples, n_jobs=-1)
+        # elif regressor=='rforest':
+        #     n_estimators = 100 if 'n_estimators' not in kwargs else kwargs['n_estimators']
+        #     # max_samples = .05 if 'max_samples' not in kwargs else kwargs['max_samples']
+        #     self._reg = RandomForestRegressor(bootstrap=True, n_estimators=n_estimators, n_jobs=1)
+        # elif regressor=='omp':
+        #     nnz = 0.1 if 'nnz' not in kwargs else kwargs['nnz']
+        #     self._reg = OrthogonalMatchingPursuit(n_nonzero_coefs=None, fit_intercept=True, normalize=False)
+        # elif regressor=='ompcv':
+        #     nnz = 0.1 if 'nnz' not in kwargs else kwargs['nnz']
+        #     self._reg = OrthogonalMatchingPursuitCV(fit_intercept=True, normalize=True)
         else:
             raise ValueError('Unknown type of regressor: {}'.format(regressor))
 
@@ -1548,7 +1609,10 @@ class PCRegression:
 
         # update dimension information
         self._dimx = X.shape[-1]
-        self.n_components = Xcof.shape[-1]  # true number of components
+        if self._reg_name == 'lasso':
+            self.n_components = self._reg.nnz  # true number of components
+        else:
+            self.n_components = Xcof.shape[-1]  # true number of components
 
     def predict(self, X0):
         assert X0.ndim==2 and X0.shape[-1] == self._dimx
@@ -1557,7 +1621,7 @@ class PCRegression:
 
         # method 1: manual computation
         yprd = X0 @ self.coef_ + self.intercept_
-        # Uncomment the following line will make method 1 and 2 equivalent
+        # Uncomment the following line to remove nans in the final prediction
         # yprd[np.isnan(yprd)] = 0
 
         # # method 2: scikit-learn based
@@ -1565,7 +1629,7 @@ class PCRegression:
         # X = X0[~nidc,:]
         # Xcof = self._pca.transform(X)
         # # equivalent to: Xcof = (X - self._pca.mean_[np.newaxis,:]) @ self._pca.components_.T
-        # yprd = np.zeros(X0.shape[0])
+        # yprd = np.zeros(X0.shape[0]) * np.nan
         # yprd[~nidc] = self._reg.predict(Xcof)
 
         return yprd
@@ -1575,21 +1639,31 @@ class MRA_Regression:
     """
     """
 
-    def __init__(self, lag, wvlname, maxlvl, mode='ad', nflag=False):
+    def __init__(self, lag, wvlname, maxlvl, mode='acdc', regdc='lasso', regac='ridge', lossdc=1e-6, lossac=1e-3):
+        """
+        Args:
+            loss_dc (float): tolerance of infomation loss in PCR for the dc component
+            loss_ac (float): tolerance of infomation loss in PCR for the dt component
+            mode: 'full', 'whole', 'acdc'
+        """
+
         self.lag = lag
         self.wvlname = wvlname
 #         self.wvl = pywt.Wavelet(wvlname)
         self.maxlvl = maxlvl
         self.mode = mode  # mode of regression
         self._regs = None
+        self._reg_name = {'ac': regac, 'dc': regdc}  # regressor for approximation and detail coefficients
+        self.loss = {'ac': lossac, 'dc': lossdc}
+
         self._dimx = None  # number of features of the input variable
         self.n_coefs_ = None  # number of coefficients per scale (depending on the mode)
         self.n_coefs = None  # total number of coefficients
-        self.nflag =  nflag  # per-scale normalization
-        self._scalers = None  # per-scale scaler
+        # self.nflag =  nflag  # per-scale normalization
+        # self._scalers = None  # per-scale scaler
 
     @staticmethod
-    def _prepare_data(X, y, lag, wvlname, maxlvl, oratio=1., nratio=0., keepdc=True, nflag=False, xflag=False):
+    def _prepare_data(X, y, lag, wvlname, maxlvl, oratio=1., nratio=0., keepdc=True, xflag=False):
         """
         Args:
             X (2d array): input variables, n_samples by n_features
@@ -1600,8 +1674,8 @@ class MRA_Regression:
             xflag (bool): process the input variable as well
             nflag (bool): per-scale standardization
         """
-        assert 0. <= oratio <= 1.
-        assert 0. <= nratio <= 1.
+        # assert 0. <= oratio <= 1.
+        # assert 0. <= nratio <= 1.
 
         Xcmv = Tools.mts_cumview(X.T, lag).T
 
@@ -1609,105 +1683,116 @@ class MRA_Regression:
         Xcof0 = pywt.wavedec(Xcmv, wvlname, level=maxlvl, axis=0)
         ycof0 = pywt.wavedec(y, wvlname, level=maxlvl)
         Xcof = []; ycof = []
-        scalers = []
+        # scalers = []
 
         for n, (cX, cy) in enumerate(zip(Xcof0, ycof0)):
-            # scale normalization of X
-            if nflag:
-                scaler = StandardScaler(with_mean=False, with_std=True, copy=True)
-                # scaler = RobustScaler(with_centering=False, with_scaling=True, copy=True)
-            else:
-                scaler = StandardScaler(with_mean=False, with_std=False, copy=True)
-                # scaler = RobustScaler(with_centering=False, with_scaling=False, copy=True)
-            scalers.append(scaler)
+            # # scale normalization of X
+            # if nflag:
+            #     scaler = StandardScaler(with_mean=False, with_std=True, copy=True)
+            #     # scaler = RobustScaler(with_centering=False, with_scaling=True, copy=True)
+            # else:
+            #     scaler = StandardScaler(with_mean=False, with_std=False, copy=True)
+            #     # scaler = RobustScaler(with_centering=False, with_scaling=False, copy=True)
+            # scalers.append(scaler)
 
             cnt = np.zeros(cX.shape[0], dtype=int)  # counter
             # 1. remove nans
             cnt += np.sum(np.isnan(cX), axis=-1)
             cnt += np.isnan(cy)
-            # 2. remove outliers and denoise
-            if n==0 and keepdc:  # not processing the dc component
-                ycof.append(cy[cnt==0])
-                Xcof.append(scaler.fit_transform(cX[cnt==0,:]))
-                continue
-            if xflag:
-                cX1 = cX.copy(); cX1[np.isnan(cX)] = 0
-                # foo = cX1 - np.mean(cX1, axis=0)[np.newaxis,:]
-                foo = cX1
-                v = np.sqrt(np.sum(np.abs(foo)**2, axis=-1))
-                cnt += v>np.percentile(v, 100*oratio)  # outlier thresh
-                cnt += v<np.percentile(v, 100*nratio)  # noise thresh
-            cy1 = cy.copy(); cy1[np.isnan(cy)] = 0
-            v = np.abs(cy1-np.mean(cy1))
-            # v = np.abs(cy1)
-            cnt += v>np.percentile(v, 100*oratio)  # outlier thresh
-            cnt += v<np.percentile(v, 100*nratio)  # noise thresh
+
+            # # 2. remove outliers and denoise
+            # if n==0 and keepdc:  # not processing the dc component
+            #     ycof.append(cy[cnt==0])
+            #     # Xcof.append(scaler.fit_transform(cX[cnt==0,:]))
+            #     Xcof.append(cX[cnt==0,:])
+            #     continue
+            # if xflag:
+            #     cX1 = cX.copy(); cX1[np.isnan(cX)] = 0
+            #     # foo = cX1 - np.mean(cX1, axis=0)[np.newaxis,:]
+            #     foo = cX1
+            #     v = np.sqrt(np.sum(np.abs(foo)**2, axis=-1))
+            #     cnt += v>np.percentile(v, 100*oratio)  # outlier thresh
+            #     cnt += v<np.percentile(v, 100*nratio)  # noise thresh
+            # cy1 = cy.copy(); cy1[np.isnan(cy)] = 0
+            # v = np.abs(cy1-np.mean(cy1))
+            # # v = np.abs(cy1)
+            # cnt += v>np.percentile(v, 100*oratio)  # outlier thresh
+            # cnt += v<np.percentile(v, 100*nratio)  # noise thresh
+
             # selection of rows
             ycof.append(cy[cnt==0])
-            Xcof.append(scaler.fit_transform(cX[cnt==0,:]))
-        return (Xcof, ycof), (Xcof0, ycof0), scalers
+            # Xcof.append(scaler.fit_transform(cX[cnt==0,:]))
+            Xcof.append(cX[cnt==0,:])
+        return (Xcof, ycof), (Xcof0, ycof0)
 
-    def fit(self, X, y, tol=1e-3, oratio=1., nratio=0., regressor='ridge', **kwargs):
+    def fit(self, X, y, **kwargs):
         """
         Args:
             X (2d array): input variables, n_samples by n_features
             y (1d array): output variable, must have same number of observations as X
-            mode: 'full', 'whole', 'ad'
         """
         assert X.ndim==2 and y.ndim==1
         assert X.shape[0] == y.shape[-1]
 
-        tol_dc = 1e-6  # PCR tolerance for approximation coefficients
-        alpha_dc = 1e-6  # Ridge regularization parameter for approximation coefficients
-
         self._dimx = X.shape[-1]
-        foo, foo0, self._scalers = self._prepare_data(X, y, self.lag, self.wvlname, self.maxlvl, oratio=oratio, nratio=nratio, keepdc=True, xflag=False, nflag=self.nflag)
-        self._Xcof, self._ycof = foo  # preprocessed coefficients
-        self._Xcof0, self._ycof0 = foo0  # raw coefficients
+        # foo, foo0  = self._prepare_data(X, y, self.lag, self.wvlname, self.maxlvl, oratio=oratio, nratio=nratio, keepdc=True, xflag=False)
+        # Xcof, ycof = foo  # preprocessed coefficients
+        # Xcof0, ycof0 = foo0  # raw coefficients
+
+        # wavelet decomposition
+        Xcmv = Tools.mts_cumview(X.T, self.lag).T  # cumulative view
+        # raw coefficients
+        Xcof0 = pywt.wavedec(Xcmv, self.wvlname, level=self.maxlvl, axis=0)
+        ycof0 = pywt.wavedec(y, self.wvlname, level=self.maxlvl)
+        # preprocessed coefficients
+        Xcof = []; ycof = []
+        for cX, cy in zip(Xcof0, ycof0):
+            cnt = np.sum(np.isnan(cX), axis=-1) + np.isnan(cy)
+            Xcof.append(cX[cnt==0,:])
+            ycof.append(cy[cnt==0])
 
         self._regs = []
         self.n_coefs_ = []
 
         if self.mode=='full':
-            for n, (cX, cy) in enumerate(zip(self._Xcof, self._ycof)):
+            for n, (cX, cy) in enumerate(zip(Xcof, ycof)):
                 if n==0:
-                    tol_ = tol if len(self._Xcof)==0 else tol_dc # if there is only approximation coeffs (or maxlvl==0), treat as detail coeffs
-                    reg = PCRegression(tol=tol_, regressor=regressor, **kwargs)
+                    reg = PCRegression(loss=self.loss['dc'], regressor=self._reg_name['dc'], **kwargs)
                 else:
-                    reg = PCRegression(tol=tol, regressor=regressor, **kwargs)
+                    reg = PCRegression(loss=self.loss['ac'], regressor=self._reg_name['ac'], **kwargs)
                 reg.fit(cX, cy)
                 self.n_coefs_.append(reg.n_components)
                 self._regs.append(reg)
-        elif self.mode=='ad':
+        elif self.mode=='acdc':
             # regression of the approximation coeffs
-            tol_ = tol if len(self._Xcof)==0 else tol_dc # if there is only approximation coeffs (or maxlvl==0), treat as detail coeffs
-            reg = PCRegression(tol=tol_, regressor=regressor, **kwargs)
-            reg.fit(self._Xcof[0], self._ycof[0])
+            reg = PCRegression(loss=self.loss['dc'], regressor=self._reg_name['dc'], **kwargs)
+            reg.fit(Xcof[0], ycof[0])
             self.n_coefs_.append(reg.n_components)
             self._regs.append(reg)
 
             # regression of all detail coeffs
-            if len(self._Xcof) > 1:
-                Xdcf = np.concatenate(self._Xcof[1:], axis=0)
-                ydcf = np.concatenate(self._ycof[1:])
+            if len(Xcof) > 1:
+                Xdcf = np.concatenate(Xcof[1:], axis=0)
+                ydcf = np.concatenate(ycof[1:])
                 # print(Xdcf.shape, ydcf.shape)
-                reg = PCRegression(tol=tol, regressor=regressor, **kwargs)
+                reg = PCRegression(loss=self.loss['ac'], regressor=self._reg_name['ac'], **kwargs)
                 reg.fit(Xdcf, ydcf)
                 self.n_coefs_.append(reg.n_components)
                 self._regs.append(reg)
-        elif self.mode=='whole':
-            # regression of all detail coeffs
-            Xall = np.concatenate(self._Xcof, axis=0)
-            yall = np.concatenate(self._ycof)
-            # print(Xall.shape, yall.shape)
-            reg = PCRegression(tol=tol, regressor=regressor, **kwargs)
-            reg.fit(Xall, yall)
-            self.n_coefs_.append(reg.n_components)
-            self._regs.append(reg)
+        # elif self.mode=='whole':
+        #     # regression of all detail coeffs
+        #     Xall = np.concatenate(Xcof, axis=0)
+        #     yall = np.concatenate(ycof)
+        #     # print(Xall.shape, yall.shape)
+        #     reg = PCRegression(tol=tol, regressor=regressor, **kwargs)
+        #     reg.fit(Xall, yall)
+        #     self.n_coefs_.append(reg.n_components)
+        #     self._regs.append(reg)
         else:
             raise TypeError('Unknown mode: {}'.format(self.mode))
 
         self.n_coefs = np.sum(self.n_coefs_)
+        # print(self.n_coefs_)
 
     def predict(self, X):
         """
@@ -1723,31 +1808,34 @@ class MRA_Regression:
         Xcmv = Tools.mts_cumview(X.T, self.lag).T
 
         # wavelet decomposition
-        Xcof0 = pywt.wavedec(Xcmv, self.wvlname, level=self.maxlvl, axis=0)
-        if self.nflag:
-            # Xcof = [scaler.transform(cX) for scaler, cX in zip(self._scalers, Xcof0)]
-            Xcof = [cX @ np.diag(1/scaler.scale_) for scaler, cX in zip(self._scalers, Xcof0)]
-        else:
-            Xcof = Xcof0
+        Xcof = pywt.wavedec(Xcmv, self.wvlname, level=self.maxlvl, axis=0)
+        # if self.nflag:
+        #     # Xcof = [scaler.transform(cX) for scaler, cX in zip(self._scalers, Xcof0)]
+        #     Xcof = [cX @ np.diag(1/scaler.scale_) for scaler, cX in zip(self._scalers, Xcof0)]
+        # else:
+        #     Xcof = Xcof0
         yprc = []  # predicted coefficients
 
         if self.mode=='full':
             for cX, reg in zip(Xcof, self._regs):
                 yprc.append(reg.predict(cX))
-        elif self.mode=='ad':
+        elif self.mode=='acdc':
+            # toto = self._regs[0].predict(Xcof[0]); yprc.append(np.zeros_like(toto))
             yprc.append(self._regs[0].predict(Xcof[0]))
+
             if len(Xcof) > 1:
                 Xdcf = np.concatenate(Xcof[1:], axis=0)
+                # toto = self._regs[1].predict(Xdcf); yprc0 = np.zeros_like(toto)
                 yprc0 = self._regs[1].predict(Xdcf)
                 cdims = np.cumsum([C.shape[0] for C in Xcof[1:]])[:-1]
                 yprc += np.split(yprc0, cdims)
             # print(cdims, [y.shape for y in yprc])
-        elif self.mode=='whole':
-            Xall = np.concatenate(Xcof, axis=0)
-            yprc0 = self._regs[0].predict(Xall)
-            cdims = np.cumsum([C.shape[0] for C in Xcof])[:-1]
-            yprc = np.split(yprc0, cdims)
-            # print(cdims, [y.shape for y in yprc])
+        # elif self.mode=='whole':
+        #     Xall = np.concatenate(Xcof, axis=0)
+        #     yprc0 = self._regs[0].predict(Xall)
+        #     cdims = np.cumsum([C.shape[0] for C in Xcof])[:-1]
+        #     yprc = np.split(yprc0, cdims)
+        #     # print(cdims, [y.shape for y in yprc])
         else:
             raise TypeError('Unknown mode: {}'.format(self.mode))
 
