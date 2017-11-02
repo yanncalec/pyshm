@@ -8,9 +8,16 @@ import scipy.special
 import pandas as pd
 from functools import wraps
 import warnings
+
+# import sklearn
+# from sklearn import linear_model, decomposition, pipeline, cross_validation
 # from sklearn.cluster import KMeans
-# from sklearn.decomposition import PCA
+from sklearn.decomposition import PCA
+from sklearn.linear_model import LinearRegression, Ridge, RidgeCV, RANSACRegressor, TheilSenRegressor, Lasso, LassoCV, LassoLars, LassoLarsCV, OrthogonalMatchingPursuit, OrthogonalMatchingPursuitCV
+# from sklearn.ensemble import BaggingRegressor, RandomForestRegressor
+# from sklearn.preprocessing import StandardScaler, RobustScaler
 # from sklearn.gaussian_process import GaussianProcess
+# from sklearn.pipeline import Pipeline
 
 from . import Tools, Kalman
 # from pyshm import Tools, Kalman
@@ -574,7 +581,6 @@ def dim_reduction_pca(func):
     return newfunc
 
 
-
 def dim_reduction_bm(func):
     """Dimension reduction in Brownian Motion model multivariate linear regression.
     """
@@ -916,6 +922,309 @@ def multi_linear_regression_bm(Y, X, sigmaq2, sigmar2, x0=0., p0=1., kftype='smo
 
     return (Amat, Pflt[:,:-dimobs,:-dimobs]), (Cvec, Pflt[:,-dimobs:,-dimobs:]), Err, Sig
 
+
+#### Scikit-Learn based regression ####
+
+class IRLS:
+    def __init__(self, pnorm=1, vreg=1e-6, fit_intercept=True, tol=1e-4, max_iter=10**4):
+        assert pnorm>0
+        self.pnorm = pnorm
+        self.vreg = vreg
+        self.fit_intercept = fit_intercept
+        self.tol = tol
+        self.max_iter = max_iter
+
+    def fit(self, X0, y, verbose=False):
+        assert X0.ndim==2 and y.ndim==1
+        assert X0.shape[0] == y.shape[-1]
+
+        n_samples = len(y)
+        if self.fit_intercept:
+            X = np.concatenate([X0, np.ones((n_samples,1))], axis=-1)
+        else:
+            X = X0
+
+        A = []; R = [0]; E = []
+        w = np.ones(n_samples)
+        # iterations
+        for n in range(self.max_iter):
+            coefs = la.inv(X.T @ np.diag(w) @ X) @ X.T @ (w * y)
+            residual = y - X @ coefs
+            w = np.power(np.maximum(self.vreg, np.abs(residual)), self.pnorm-2)
+            A.append(coefs)
+            R.append(la.norm(residual))
+
+            err = np.abs(R[-1]-R[-2])/R[-2] # la.norm(R[-1]-R[-2]) / la.norm(R[-2])
+            E.append(err)
+            if verbose and n % 100==0:
+                print('Iteration: {}, relative error: {}, error: {}'.format(n, err, R[-1]))
+            # if E[-1] < self.tol:
+            #     break
+
+        if self.fit_intercept:
+            self.coef_ = A[-1][:-1]
+            self.intercept_ = A[-1][-1]
+        else:
+            self.coef_ = A[-1]
+            self.intercept_ = None
+
+    def predict(self, X):
+        if self.fit_intercept:
+            y = X @ self.coef_ + self.intercept_
+        else:
+            y = X @ self.coef_
+        return y
+
+
+class RANSAC:
+    @staticmethod
+    def is_data_valid(X, y):
+        # dy = np.diff(y)
+        return True
+
+    def __init__(self, min_samples=0.2, stop_probability=1-1e-3, max_trials=10**3, nexp=10, method='median'):
+        self.min_samples = min_samples
+        self._reg = RANSACRegressor(min_samples=min_samples, stop_probability=stop_probability, max_trials=max_trials, is_data_valid=None)
+        self.nexp = nexp
+        self.method = method
+        self.coef_ = None
+        self.intercept_ = None
+
+    def fit(self, X, y):
+        A0 = []
+        b0 = []
+        for n in range(self.nexp):
+            self._reg.fit(X, y)
+            A0.append(self._reg.estimator_.coef_)
+            b0.append(self._reg.estimator_.intercept_)
+        # print(A0, b0)
+
+        if self.method=='mean':
+            A = np.mean(np.asarray(A0), axis=0)
+            b = np.mean(np.asarray(b0))
+        elif self.method=='median':
+            A = np.median(np.asarray(A0), axis=0)
+            b = np.median(np.asarray(b0))
+        else:
+            raise TypeError('Unknown method: {}'.format(self.method))
+        self.coef_ = A
+        self.intercept_ = b
+
+    def predict(self, X):
+        return X @ self.coef_ + self.intercept_
+
+class RIDGE:
+    def __init__(self, alpha=1e-4, shrinkage=None, **kwargs):
+        self._reg = Ridge(alpha=alpha, fit_intercept=True, normalize=False, copy_X=True, solver='svd')
+        self._reg_db = LinearRegression(fit_intercept=True, normalize=False, copy_X=True, n_jobs=-1)
+
+        self.coef_ = None
+        self.intercept_ = None
+        self.alpha_ = None
+        self.inz = None
+        self.nnz = None
+
+    def fit(self, X, y):
+        self._reg_cv.fit(X, y)
+        self.alpha_ = self._reg_cv.alpha_
+        self.inz = np.abs(self._reg_cv.coef_) > 0
+        self.nnz = np.sum(self.inz)
+        # print(self.nnz)
+
+        # if self.nnz==0:  # lasso failed to find non-zero solution
+        #     raise ValueError('LassoCV failed.')
+
+        if self.debiasing and self.nnz > 0:
+            self._reg_db.fit(X[:,self.inz], y)
+            self.coef_ = np.zeros(X.shape[-1])
+            self.coef_[self.inz] = self._reg_db.coef_
+            self.intercept_ = self._reg_db.intercept_
+        else:
+            self.coef_ = self._reg_cv.coef_
+            self.intercept_ = self._reg_cv.intercept_
+
+    def predict(self, X):
+        self.coef_ @ X + self.intercept_
+
+
+class LASSO:
+    def __init__(self, tol=1e-5, max_iter=10**5, debiasing=True, **kwargs):
+        self.debiasing = debiasing
+        self._reg_cv = LassoLarsCV(max_iter=max_iter, fit_intercept=True, normalize=True, copy_X=True, cv=10, verbose=False, n_jobs=1, positive=False) #, selection='random')
+        # self._reg_cv = LassoCV(eps=1e-4, tol=tol, max_iter=max_iter, n_alphas=10**3, fit_intercept=True, normalize=False, copy_X=True, cv=10, verbose=False, n_jobs=-1, positive=False, random_state=None) #, selection='random')
+        # self._reg_cv = Lasso(alpha=1e3, tol=tol, max_iter=max_iter, fit_intercept=True, normalize=False, copy_X=True, positive=False, random_state=None) #, selection='random')
+        self._reg_db = LinearRegression(fit_intercept=True, normalize=False, copy_X=True, n_jobs=-1)
+
+        self.coef_ = None
+        self.intercept_ = None
+        self.alpha_ = None
+        self.inz = None
+        self.nnz = None
+
+    def fit(self, X, y):
+        self._reg_cv.fit(X, y)
+        # self.alpha_ = self._reg_cv.alpha_
+        # print(self.alpha_)
+        self.inz = np.abs(self._reg_cv.coef_) > 0
+        self.nnz = np.sum(self.inz)
+
+        if self.nnz==0:  # lasso failed to find non-zero solution
+            print('LassoCV failed.')
+            # raise ValueError('LassoCV failed.')
+
+        if self.debiasing and self.nnz > 0:
+            self._reg_db.fit(X[:,self.inz], y)
+            self.coef_ = np.zeros(X.shape[-1])
+            self.coef_[self.inz] = self._reg_db.coef_
+            self.intercept_ = self._reg_db.intercept_
+        else:
+            self.coef_ = self._reg_cv.coef_
+            self.intercept_ = self._reg_cv.intercept_
+
+    def predict(self, X):
+        self.coef_ @ X + self.intercept_
+
+
+class PCRegression:
+    """Principal components regression
+
+    """
+    def __init__(self, loss=1e-3, n_components=None, reg_name='lr', fit_intercept=True, **kwargs):
+        """
+        Args:
+            loss (float): tolerance rate (between 0 and 1) for infomation loss
+            n_components (int): desired number of components
+            reg_name (str): name of the underlying regressor
+        """
+        self.n_components = None # number of components after dimension reduction
+        self.coef_ = None  # estimate of linear coefficients (before dimension reduction)
+        self.intercept_ = None  # estimate of bias
+        # the following variables are automatically updated after each call of fit():
+        self._score = None  # score of regression
+        self._dimx = None  # dimension of the input variable
+        self._reg_name = reg_name  # name of regression
+
+        if n_components is None:  # if desired dimension is not given
+            assert 0. <= loss < 1.
+            self.loss = loss
+            self._pca = PCA(n_components=None if loss==0 else 1-loss)
+        else:
+            assert n_components >= 1
+            self.n_components = n_components
+            self._pca = PCA(n_components=self.n_components)
+
+        # print('n_components=',n_components)
+        # self._reg_name = reg_name  # name of the regressor
+        if reg_name=='lr':
+            self._reg = LinearRegression(fit_intercept=fit_intercept, normalize=False, copy_X=True, n_jobs=-1)
+        elif reg_name=='ridge':
+            alpha = 1e-6 if 'alpha' not in kwargs else kwargs['alpha']
+            normalize = False if 'normalize' not in kwargs else kwargs['normalize']
+            self._reg = Ridge(alpha=alpha, fit_intercept=fit_intercept, normalize=normalize, copy_X=True, solver='svd')
+        elif reg_name=='theilsen':
+            tol = 1e-4 if 'tol' not in kwargs else kwargs['tol']
+            max_iter = 10**4 if 'max_iter' not in kwargs else kwargs['max_iter']
+            self._reg = sklearn.linear_model.TheilSenRegressor(fit_intercept=fit_intercept, copy_X=True, max_subpopulation=1e4, n_subsamples=None, max_iter=max_iter, tol=tol, n_jobs=-1, verbose=False)
+        elif reg_name=='lasso':
+            tol = 1e-5 if 'tol' not in kwargs else kwargs['tol']
+            max_iter = 10**5 if 'max_iter' not in kwargs else kwargs['max_iter']
+            self._reg = LASSO(tol=tol, max_iter=max_iter, fit_intercept=fit_intercept, debiasing=True)
+        elif reg_name=='ransac':
+            min_samples = 0.2 if 'min_samples' not in kwargs else kwargs['min_samples']
+            nexp = 10**2 if 'nexp' not in kwargs else kwargs['nexp']
+            method = 'median' if 'method' not in kwargs else kwargs['method']
+            # stop_probability = 1-1e-3 if 'stop_probability' not in kwargs else kwargs['stop_probability']
+            # max_trials = 10**3 if 'max_trials' not in kwargs else kwargs['max_trials']
+            # self._reg = RANSAC(min_samples=min_samples, stop_probability=stop_probability, max_trials=max_trials, nexp=nexp, method=method)
+            self._reg = RANSAC(min_samples=min_samples, nexp=nexp, method=method)
+        elif reg_name=='irls':
+            pnorm = 1 if 'pnorm' not in kwargs else kwargs['pnorm']
+            vreg = 1e-6 if 'vreg' not in kwargs else kwargs['vreg']
+            tol = 1e-5 if 'tol' not in kwargs else kwargs['tol']
+            max_iter = 10**5 if 'max_iter' not in kwargs else kwargs['max_iter']
+            self._reg = IRLS(pnorm=pnorm, vreg=vreg, tol=tol, max_iter=max_iter, fit_intercept=fit_intercept)
+        # elif reg_name=='bagging':
+        #     n_estimators = 1000 if 'n_estimators' not in kwargs else kwargs['n_estimators']
+        #     max_samples = .1 if 'max_samples' not in kwargs else kwargs['max_samples']
+        #     self._reg = BaggingRegressor(base_estimator=LinearRegression(), bootstrap=False, n_estimators=n_estimators, max_samples=max_samples, n_jobs=-1)
+        # elif reg_name=='rforest':
+        #     n_estimators = 100 if 'n_estimators' not in kwargs else kwargs['n_estimators']
+        #     # max_samples = .05 if 'max_samples' not in kwargs else kwargs['max_samples']
+        #     self._reg = RandomForestRegressor(bootstrap=True, n_estimators=n_estimators, n_jobs=1)
+        # elif reg_name=='omp':
+        #     tol = 1e-5 if 'tol' not in kwargs else kwargs['tol']
+        #     nnz = 0.2 if 'nnz' not in kwargs else kwargs['nnz']
+        #     self._reg = OrthogonalMatchingPursuit(n_nonzero_coefs=None, tol=tol, fit_intercept=fit_intercept, normalize=False)
+        # elif reg_name=='ompcv':
+        #     max_iter = 10**5 if 'max_iter' not in kwargs else kwargs['max_iter']
+        #     self._reg = OrthogonalMatchingPursuitCV(fit_intercept=fit_intercept, normalize=True, max_iter=max_iter, cv=None)
+        else:
+            raise ValueError('Unknown type of regressor: {}'.format(reg_name))
+
+    def fit(self, X0, y0):
+        """
+        Args:
+            X0 (2d array): n_samples by n_features
+            y0 (1d array): n_samples
+        """
+        assert X0.ndim == 2 and y0.ndim == 1
+        assert X0.shape[0] == y0.shape[-1]
+
+        # remove nans
+        nidc = (np.sum(np.isnan(X0), axis=-1) + np.isnan(y0)) > 0
+        X, y = X0[~nidc,:], y0[~nidc]
+
+        # PCA transform
+        self._pca.fit(X)
+        Xcof = self._pca.transform(X)
+
+        # regression
+        self._reg.fit(Xcof, y)
+        # print(Xcof.shape)
+        # print(np.corrcoef(X.T, y)[:-1,-1])
+
+        self.coef_pca_ = self._reg.coef_  # regression coefficients (after PCA)
+        # print(self.coef_pca_)
+        self.coef_ =  self._pca.components_.T @ self.coef_pca_ # regression coefficients (before PCA)
+        self.intercept_ = self._reg.intercept_ - self.coef_ @ self._pca.mean_
+
+        # update dimension information
+        self._dimx = X.shape[-1]
+        if self._reg_name == 'lasso':
+            self.n_components = self._reg.nnz  # true number of components
+        else:
+            self.n_components = Xcof.shape[-1]  # true number of components
+
+        # score of regression
+        self._score = 1 - np.mean(np.abs(y - self.predict(X))**2) / np.var(y)  # 1 - ss_res / ss_tot
+
+    def predict(self, X0):
+        assert X0.ndim==2
+        assert X0.shape[-1] == self._dimx
+        if self._pca is None:
+            raise ValueError('Run self.fit() first!')
+
+        # method 1: manual computation
+        yprd = X0 @ self.coef_ + self.intercept_
+        # Uncomment the following line to remove nans in the final prediction
+        # yprd[np.isnan(yprd)] = 0
+
+        # # method 2: scikit-learn based
+        # nidc = np.sum(np.isnan(X0), axis=-1) > 0  # nans indicator
+        # X = X0[~nidc,:]
+        # Xcof = self._pca.transform(X)
+        # # equivalent to: Xcof = (X - self._pca.mean_[np.newaxis,:]) @ self._pca.components_.T
+        # yprd = np.zeros(X0.shape[0]) * np.nan
+        # yprd[~nidc] = self._reg.predict(Xcof)
+
+        return yprd
+
+    def adjust_intercept(self, X0, y0):
+        self.intercept_ = np.mean(y0 - self.predict(X0))
+
+    def score(self, X0, y0):
+        self.fit(X0, y0)
+        return self._score
 
 ###### Alarms #####
 def detect_periods_of_instability(hexp, hthresh, hgap=0, mask=None):
