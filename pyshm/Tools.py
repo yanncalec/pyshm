@@ -410,13 +410,14 @@ def L_filter_boundary(X, wsize=1):
 
 #### Datetime and time-series related ####
 
-def resampling_time_series(X, p='H', method='slinear'):
+def resampling_time_series(X, p='H', method='slinear', nh=12):
     """Resampling of time series with a regular period.
 
     Args:
         X (pandas DataFrame or Series): input time series, X.index must be an object of DateTimeIndex.
         p (str): period of resampling, by default 'H' (which stands for 'hour').
         method (str): method of interpolation
+        nh (int): minimal period so that missing data is filled by nan
     Returns:
         S (pandas DataFrame or Series): resampled time series (original time series augmented by resampled values)
         Tstp (pandas DateTimeIndex): timestamps of resampled points
@@ -431,7 +432,7 @@ def resampling_time_series(X, p='H', method='slinear'):
     # Timestamps of NaN values
     Y = X.resample(p).mean().loc[Tstp]
     nidc = np.isnan(np.asarray(Y, dtype=float)).sum(axis=1)>0
-    nidc = UL_filter_boundary(nidc, 12) # index where no original observations exist on an interval of length m
+    nidc = UL_filter_boundary(nidc, nh) # index where no original observations exist on an interval of length nh
     Nstp = Tstp[nidc]
 
     # Augmentation of the original time series
@@ -809,28 +810,27 @@ def find_altsign(X, minlen=10):
     return sidx
 
 
-def remove_nan_columns(*args):
-    """Remove (common) nan columns from a (list of) 2d array.
+def remove_nan_axis(*args, axis=0):
+    """Remove (common) nan columns or rows from a (list of) 2d or 1d array.
 
     Args:
-        *args: a 2d array (or a list of 2d arrays with the same number of columns).
+        *args: 2d or 1d arrays with the same number of rows.
+        axis (int): 0 for removal of rows and 1 for removal of columns
     Returns:
-        processed array(s) and a bool array containing the indexes of removed nan columns.
+        processed array(s)
     """
-
-    assert(len(args)>0 and args[0].ndim==2)
-    Nt = args[0].shape[1]
-    V = np.zeros(Nt, dtype=int)
-    for Y in args:
-        assert(Y.ndim==2 and Y.shape[1]==Nt)
-        V += np.sum(np.isnan(Y), axis=0)
-    cidx = ~(V>0)  # columns do not containing nan
-    Z = [Y[:,cidx] for Y in args]
-
-    if len(args)>1:
-        return Z, cidx
+    assert len(args)>0 and args[0].ndim<=2
+    assert axis == 0 or axis == 1
+    X = args[0]
+    cnt = np.sum(np.isnan(X), axis=1-axis)
+    for Y in args[1:]:
+        assert Y.shape[0] == X.shape[0] and Y.ndim <= 2
+        cnt += np.isnan(Y) if Y.ndim == 1 else np.sum(np.isnan(Y), axis=-1)
+    if axis == 0:
+        res = tuple([X[cnt==0,:]]+[Y[cnt==0,:] for Y in args])
     else:
-        return Z[0], cidx
+        res = tuple([X[:,cnt==0]]+[Y[:,cnt==0] for Y in args])
+    return res if len(args)>1 else res[0]
 
 #### Linear algebra related ####
 

@@ -264,7 +264,7 @@ def linear_regression(Y, X):
     assert Y.ndim==X.ndim==1
     assert len(Y)==len(X)
 
-    (X0, Y0), nidx = Tools.remove_nan_columns(np.atleast_2d(X), np.atleast_2d(Y))  # the output is a 2d array
+    X0, Y0 = Tools.remove_nan_axis(np.atleast_2d(X), np.atleast_2d(Y), axis=1)  # the output is a 2d array
     X0 = X0[0]; Y0 = Y0[0]  # convert to 1d array
 
     # X0[np.isnan(X0)] = 0; Y0[np.isnan(Y0)] = 0
@@ -431,28 +431,28 @@ def global_delay(xobs, yobs, dlrng=(-12,12)):
 
 ########## Regression analysis ##########
 
-def training_period(Nt, tidx0=None, Ntrn=None):
+def training_period(Nt, tidx0=None, ntrn=None):
     """Compute the valid training period from given parameters.
 
     Args:
         Nt (int): total length of the data
         tidx0 (int): starting index of the training period.
-        Ntrn (int): length of the training period.
+        ntrn (int): length of the training period.
     Returns:
         ..
         - (tidx0, tidx1): tuple of valid starting and ending index.
-        - Ntrn: length of valid training period.
+        - ntrn: length of valid training period.
     """
     tidx0 = 0 if tidx0 is None else (tidx0 % Nt)
-    tidx1 = Nt if Ntrn is None else min(tidx0+Ntrn, Nt)
-    Ntrn = tidx1 - tidx0
+    tidx1 = Nt if ntrn is None else min(tidx0+ntrn, Nt)
+    ntrn = tidx1 - tidx0
 
     # tidx1 = 0 if tidx0 is None else min(max(0, tidx0), self.Nt)
-    # Ntrn = self.Nt if Ntrn is None else min(max(0, Ntrn), self.Nt)
+    # ntrn = self.Nt if ntrn is None else min(max(0, ntrn), self.Nt)
     # tidx0 = 0 if tidx0 is None else min(max(0, tidx0), self.Nt)
     # # tidx0 = np.max(self.lag)-1
-    # tidx1 = tidx0+Ntrn
-    return (tidx0, tidx1), Ntrn
+    # tidx1 = tidx0+ntrn
+    return (tidx0, tidx1), ntrn
 
 
 def percentile_subset(func):
@@ -585,10 +585,10 @@ def dim_reduction_bm(func):
     """Dimension reduction in Brownian Motion model multivariate linear regression.
     """
     @wraps(func)
-    def newfunc(Yvar0, Xvar0, sigmaq2, sigmar2, x0, p0, smooth=False, sidx=0, Ntrn=None, vthresh=0., cdim=None, covflag=True, rescale=True):
+    def newfunc(Yvar0, Xvar0, sigmaq2, sigmar2, x0, p0, smooth=False, sidx=0, ntrn=None, vthresh=0., cdim=None, covflag=True, rescale=True):
         Nt = Xvar0.shape[1]  # length of observations
         # training data for dim reduction
-        (tidx0, tidx1), _ = training_period(Nt, tidx0=sidx, Ntrn=Ntrn)  # valid training period
+        (tidx0, tidx1), _ = training_period(Nt, tidx0=sidx, ntrn=ntrn)  # valid training period
 
         # Rescaling makes sigmaq2, sigmar2 insensible to the numerical amplitude of Yvar0, Xvar0.
         def _normalize(X0):
@@ -710,10 +710,10 @@ def dim_reduction_bm(func):
 #     """Dimension reduction in Brownian Motion model multivariate linear regression.
 #     """
 #     @wraps(func)
-#     def newfunc(Yvar, Xvar, sigmaq2, sigmar2, x0, p0, smooth=False, sidx=0, Ntrn=None, vthresh=0., corrflag=False):
+#     def newfunc(Yvar, Xvar, sigmaq2, sigmar2, x0, p0, smooth=False, sidx=0, ntrn=None, vthresh=0., corrflag=False):
 #         Nt = Xvar.shape[1]  # length of observations
 #         # training data for dim reduction
-#         (tidx0, tidx1), _ = training_period(Nt, tidx0=sidx, Ntrn=Ntrn)  # valid training period
+#         (tidx0, tidx1), _ = training_period(Nt, tidx0=sidx, ntrn=ntrn)  # valid training period
 #         # dimension reduction
 #         if vthresh > 0:
 #             _, U, S = pca(Xvar[:, tidx0:tidx1], nc=None, corrflag=corrflag)  # pca coefficients

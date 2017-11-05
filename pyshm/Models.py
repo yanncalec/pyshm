@@ -13,7 +13,7 @@ import pandas as pd
 import pykalman
 import pywt
 
-# # import sklearn
+import sklearn
 # # from sklearn import linear_model, decomposition, pipeline, cross_validation
 # # from sklearn.cluster import KMeans
 # from sklearn.decomposition import PCA
@@ -29,22 +29,22 @@ from . import Tools, Stat, Kalman
 
 ########## Utility functions ##########
 
-def prepare_data(Xobs, Yobs, lag, dord=0, tflag=True):
-    """
-    """
-    assert Xobs.ndim == Yobs.ndim == 2
+# def prepare_data(Xobs, Yobs, lag, dord=0, tflag=True):
+#     """
+#     """
+#     assert Xobs.ndim == Yobs.ndim == 2
 
-    Xcmv = Tools.mts_cumview(Xobs, lag)
-    Xcmv = np.diff(Xcmv, dord, axis=-1)
-    Ycmv = np.diff(Yobs, dord, axis=-1)
+#     Xcmv = Tools.mts_cumview(Xobs, lag)
+#     Xcmv = np.diff(Xcmv, dord, axis=-1)
+#     Ycmv = np.diff(Yobs, dord, axis=-1)
 
-    Zoo, _ = Tools.remove_nan_columns(Xcmv, Ycmv)
-    if tflag:
-        Xvar, Yvar = Zoo[0].T, Zoo[1].T
-    else:
-        Xvar, Yvar = Zoo[0], Zoo[1]
+#     Zoo = Tools.remove_nan_axis(Xcmv, Ycmv, axis=1)
 
-    return Xvar, Yvar
+#     if tflag:
+#         Xvar, Yvar = Zoo[0].T, Zoo[1].T
+#     else:
+#         Xvar, Yvar = Zoo[0], Zoo[1]
+#     return Xvar, Yvar
 
 
 def _gp_cov_matrix(Nt, snr2, clen2):
@@ -88,17 +88,37 @@ def _dgp_cov_matrix(Nt, snr2=100, clen2=1):
     return scipy.linalg.toeplitz(C)
 
 
-def ssproj(X0, cdim=1, vthresh=None, corrflag=False, sidx=0, Ntrn=None, dflag=False):
+# class SsProj:
+#     def __init__(self, loss=1e-3, n_components=None, dflag=False):
+#         if n_components is None:  # if desired dimension is not given
+#             assert 0. <= loss < 1.
+#             self._pca = sklearn.decomposition.PCA(n_components=None if loss==0 else 1-loss)
+#         else:
+#             assert 1 <= n_components <= X0.shape[0]
+#             self._pca = sklearn.decomposition.PCA(n_components=n_components)
+
+#     def fit(self, X0):
+#         assert X0.ndim==2
+#         # take derivative to transform to a stationary time series
+#         X1 = np.diff(X0, axis=0) if dflag else X0
+#         # remove nan columns
+#         cnt = np.sum(np.isnan(X1), axis=1)
+#         self._pca.fit(X1[:,cnt==0].T)
+
+#     def transform(self, X0):
+#         pass
+
+def ssproj(X0, cdim=1, vthresh=None, sidx=0, ntrn=None, dflag=False):
     """Projection of a multivariate time series onto a subspace.
 
     Args:
-        X0 (2d array): input
+        X0 (2d array): input, n_features by n_observations
         cdim (int): dimension of the subspace, if cdim==0 return zero
         vthresh (float): see deconv(), if cdim is set vthresh will be ignored.
         corrflag (bool): if True use correlation matrix for PCA
         dflag (bool): if True take the derivative of the input
         sidx (int): starting index of the training period
-        Ntrn (int): length of the training period
+        ntrn (int): length of the training period
     Returns:
         Xprj: projection
         U,S: PCA basis and singular values
@@ -107,10 +127,10 @@ def ssproj(X0, cdim=1, vthresh=None, corrflag=False, sidx=0, Ntrn=None, dflag=Fa
     assert not ((cdim is None) and (vthresh is None))
     assert sidx >= 0
 
-    if Ntrn is None:
+    if ntrn is None:
         tidx0, tidx1 = sidx, None
     else:
-        tidx0, tidx1 = sidx, sidx+Ntrn
+        tidx0, tidx1 = sidx, sidx+ntrn
     # print(tidx0, tidx1)
     if dflag:
         # take derivative to transform to a stationary time series
@@ -131,7 +151,7 @@ def ssproj(X0, cdim=1, vthresh=None, corrflag=False, sidx=0, Ntrn=None, dflag=Fa
     #     X2 = X1
     # _, U, S = Stat.pca(X2, corrflag=corrflag)
 
-    _, U, S = Stat.pca(X1, corrflag=corrflag)
+    _, U, S = Stat.pca(X1, corrflag=False)
 
     # subspace dimension
     if cdim is None: # if cdim is not given, use vthresh to determine it
@@ -161,7 +181,7 @@ def ssproj(X0, cdim=1, vthresh=None, corrflag=False, sidx=0, Ntrn=None, dflag=Fa
     return Xprj, (U,S), cdim
 
 
-# def mutdecorr(Y0, lag, vthresh=1e-3): #, sidx=0, Ntrn=None):
+# def mutdecorr(Y0, lag, vthresh=1e-3): #, sidx=0, ntrn=None):
 #     """Dimension-wise mutual decorrelation."""
 #     Yprd = []
 #     for n in range(Y0.shape[0]):
@@ -246,12 +266,12 @@ class MxDeconv_LS(MxDeconv):
         else:
             self.W0 = None # invalid parameters, equivalent to W0=np.eye(Nt)
 
-    def fit(self, sidx=0, Ntrn=None, vthresh=0., cdim=None, Nexp=0, vreg=1e-8):
+    def fit(self, sidx=0, ntrn=None, vthresh=0., cdim=None, Nexp=0, vreg=1e-8):
 
         _, Xvar, Yvar = self._prepare_data()
 
         # training data
-        (tidx0, tidx1), _ = Stat.training_period(self.Nt, tidx0=sidx, Ntrn=Ntrn)  # valid training period
+        (tidx0, tidx1), _ = Stat.training_period(self.Nt, tidx0=sidx, ntrn=ntrn)  # valid training period
         Xtrn, Ytrn = Xvar[:,tidx0:tidx1:self.dspl], Yvar[:,tidx0:tidx1:self.dspl]  # down-sampling of training data
         # GLS matrix
         if self.W0 is not None:
@@ -316,7 +336,7 @@ class MxDeconv_BM(MxDeconv):
     def __init__(self, Y0, X0, lag, pord=1, dord=1):
         super().__init__(Y0, X0, lag, pord, dord, smth=False)
 
-    def fit(self, sidx=0, Ntrn=None, vthresh=0., cdim=None, sigmaq2=None, sigmar2=None, x0=None, p0=None):
+    def fit(self, sidx=0, ntrn=None, vthresh=0., cdim=None, sigmaq2=None, sigmar2=None, x0=None, p0=None):
         # self.sigmaq2 = sigmaq2
         # self.sigmar2 = sigmar2
 
@@ -328,7 +348,7 @@ class MxDeconv_BM(MxDeconv):
         self._Yvar = Yvar.copy()
 
         # training data
-        (tidx0, tidx1), _ = Stat.training_period(self.Nt, tidx0=sidx, Ntrn=Ntrn)  # valid training period
+        (tidx0, tidx1), _ = Stat.training_period(self.Nt, tidx0=sidx, ntrn=ntrn)  # valid training period
         Xtrn, Ytrn = Xvar[:,tidx0:tidx1], Yvar[:,tidx0:tidx1]
 
         # dimension reduction: either by vthresh or by cdim
@@ -489,17 +509,21 @@ class MxDeconv_BM(MxDeconv):
         return self._predict_results
 
 
-
-
 class MRA_Regression:
     """MRA (multi-resolution analysis) regression.
     """
 
-    def __init__(self, lag, wvlname, maxlvl, mode='acdc', reg_name='lasso', loss=1e-3, n_components=None):
+    def __init__(self, lag, wvlname, maxlvl, mode='acdc', reg_name='lasso', loss=1e-3, n_components=None, dc_thresh=0.7):
         """
         Args:
+            lag (int):
+            wvlname (str):
+            maxlvl (int):
             mode: 'full', 'acdc'
+            reg_name (str):
             loss (float or int): tolerance of infomation loss in PCR
+            n_components (int):
+            dc_thresh (float):
         """
 
         self.lag = lag
@@ -510,6 +534,7 @@ class MRA_Regression:
         self._reg_name = reg_name  # name of regressor
         self.loss = loss
         self.n_components = n_components
+        self.dc_thresh = dc_thresh  #
 
         self._dimx = None  # number of features of the input variable
         self.n_coefs_ = None  # number of coefficients per scale (depending on the mode)
@@ -517,7 +542,6 @@ class MRA_Regression:
 
         # self._pywt_mode = 'smooth'  # boundary extension modes for pywt
         self._pywt_mode = 'constant'  # boundary extension modes for pywt
-        self._dc_score_thresh = 0.7
 
     def fit(self, X, y, **kwargs):
         """
@@ -566,7 +590,7 @@ class MRA_Regression:
         score2 = reg.score(np.diff(Xcof[0],axis=0), np.diff(ycof[0]))
         # print(score1, score2)
         self._dc_score = min(score1, score2)
-        if self._dc_score > self._dc_score_thresh:
+        if self._dc_score > 0.7:  # thresh
             reg.fit(Xcof[0], ycof[0])
         else:
             reg.fit(np.diff(Xcof[0],axis=0), np.diff(ycof[0]))
@@ -651,7 +675,7 @@ class MRA_Regression:
 
 ##########  functional implementation #########
 
-def deconv(Y0, X0, lag, pord=1, dord=1, snr2=None, clen2=None, dspl=1, sidx=0, Ntrn=None, vthresh=0., cdim=None, Nexp=0, vreg=1e-8, polytrend=False, smth=False):
+def deconv(Y0, X0, lag, pord=1, dord=1, snr2=None, clen2=None, dspl=1, sidx=0, ntrn=None, vthresh=0., cdim=None, Nexp=0, vreg=1e-8, polytrend=False, smth=False):
     """Deconvolution of multivariate time series using a vectorial FIR filter by GLS.
 
     We look for the kernel convolution matrices A of the model
@@ -667,7 +691,7 @@ def deconv(Y0, X0, lag, pord=1, dord=1, snr2=None, clen2=None, dspl=1, sidx=0, N
         dord (int): order of derivative
         pord (int): order of polynomial trend
         sidx (int): starting index of the training period
-        Ntrn (int): length of the training period
+        ntrn (int): length of the training period
         dspl (int): down-sampling rate
         snr2 (float): signal to noise ratio of the polynomial Gaussian process
         clen2 (float): correlation length of the polynomial Gaussian process
@@ -731,7 +755,7 @@ def deconv(Y0, X0, lag, pord=1, dord=1, snr2=None, clen2=None, dspl=1, sidx=0, N
     # regressor = dim_reduction_pca(random_subset(percentile_subset(multi_linear_regression)))
 
     # training data
-    (tidx0, tidx1), _ = Stat.training_period(Nt, tidx0=sidx, Ntrn=Ntrn)  # valid training period
+    (tidx0, tidx1), _ = Stat.training_period(Nt, tidx0=sidx, ntrn=ntrn)  # valid training period
     Xtrn, Ytrn = Xvar[:,tidx0:tidx1:dspl], Yvar[:,tidx0:tidx1:dspl]  # down-sampling of training data
     # GLS matrix
     if W0 is not None :
@@ -772,7 +796,7 @@ def deconv(Y0, X0, lag, pord=1, dord=1, snr2=None, clen2=None, dspl=1, sidx=0, N
     return Yprd, Amat, Amatc
 
 
-def deconv_bm(Y0, X0, lag, pord=1, dord=0, sigmaq2=10**-6, sigmar2=10**-3, x0=0., p0=1., kftype='smoother', sidx=0, Ntrn=None, vthresh=0., cdim=None, polytrend=False, rescale=True, smth=True):
+def deconv_bm(Y0, X0, lag, pord=1, dord=0, sigmaq2=10**-6, sigmar2=10**-3, x0=0., p0=1., kftype='smoother', sidx=0, ntrn=None, vthresh=0., cdim=None, polytrend=False, rescale=True, smth=True):
     """Deconvolution of multivariate time series using a vectorial FIR filter by Kalman filter.
 
     Args:
@@ -782,7 +806,7 @@ def deconv_bm(Y0, X0, lag, pord=1, dord=0, sigmaq2=10**-6, sigmar2=10**-3, x0=0.
         dord (int): order of derivative
         pord (int): order of polynomial trend
         sidx (int): starting index of the training period
-        Ntrn (int): length of the training period
+        ntrn (int): length of the training period
         vthresh (float): see deconv()
         cdim (int): desired dimension, same effect as vthresh, no reduction if set to None.
         sigmaq2 (float): variance of innovation noise
@@ -828,7 +852,7 @@ def deconv_bm(Y0, X0, lag, pord=1, dord=0, sigmaq2=10**-6, sigmar2=10**-3, x0=0.
     regressor = Stat.dim_reduction_bm(Stat.multi_linear_regression_bm)
 
     # regression
-    ((Amat, Acov), (Cvec, Ccov), Err, Sig), ((Amatc, Acovc), *_) = regressor(Yvar, Xvar, sigmaq2, sigmar2, x0, p0, kftype=kftype, sidx=sidx, Ntrn=Ntrn, vthresh=vthresh, cdim=cdim, rescale=rescale)
+    ((Amat, Acov), (Cvec, Ccov), Err, Sig), ((Amatc, Acovc), *_) = regressor(Yvar, Xvar, sigmaq2, sigmar2, x0, p0, kftype=kftype, sidx=sidx, ntrn=ntrn, vthresh=vthresh, cdim=cdim, rescale=rescale)
     Amat0 = Amat[:, :, :Amat.shape[-1]-(pord-dord)]  # kernel matrix corresponding to the external input X(t) only, without polynomial trend
 
     # prediction
