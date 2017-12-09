@@ -273,6 +273,8 @@ class MxDeconv_LS(MxDeconv):
         # training data
         (tidx0, tidx1), _ = Stat.training_period(self.Nt, tidx0=sidx, ntrn=ntrn)  # valid training period
         Xtrn, Ytrn = Xvar[:,tidx0:tidx1:self.dspl], Yvar[:,tidx0:tidx1:self.dspl]  # down-sampling of training data
+        self._tidx0, self._tidx1 = tidx0, tidx1  # make a copy
+
         # GLS matrix
         if self.W0 is not None:
             Winv = la.inv(self.W0[tidx0:tidx1:self.dspl,:][:,tidx0:tidx1:self.dspl])
@@ -319,7 +321,9 @@ class MxDeconv_LS(MxDeconv):
             Amat0 = self._fit_results['Amat0']
             Yflt = Amat0 @ Xcmv0
 
-        Yprd = Yflt
+        Yprd = Yflt + Stat.mean((self.Y0 - Yflt)[:,self._tidx0:self._tidx1])[:,np.newaxis]
+        # Yprd = Yflt  # without adjustment of constant
+
         # if self.dord > 0:
         #     Yprd = Yflt - Tools.polyprojection(Yflt, deg=self.dord-1, axis=-1)  # projection \Psi^\dagger \Psi
         # else:
@@ -577,9 +581,9 @@ class MRA_Regression:
         # regressor = sklearn.pipeline.Pipeline(estimators)
         #
         # reg = Stat.PCRegression(loss=self.loss, n_components=self.n_components, reg_name=self._reg_name, **kwargs)
-        # reg = Stat.PCRegression(loss=1e-4, n_components=None, reg_name='lasso', **kwargs)
-        reg = Stat.PCRegression(loss=1e-4, n_components=None, reg_name='ridge', **kwargs)
-        # reg = Stat.PCRegression(loss=1e-4, n_components=None, reg_name='ransac', nexp=100, **kwargs)
+        # reg = Stat.PCRegression(loss=1e-3, n_components=None, reg_name='lasso', **kwargs)
+        reg = Stat.PCRegression(loss=1e-3, n_components=None, reg_name='ridge', **kwargs)
+        # reg = Stat.PCRegression(loss=1e-3, n_components=None, reg_name='ransac', nexp=100, **kwargs)
 
         # combining data with its derivative doesn't work well
         # Xvar = np.vstack([Xcof[0], np.diff(Xcof[0],axis=0)])
@@ -590,13 +594,34 @@ class MRA_Regression:
         score2 = reg.score(np.diff(Xcof[0],axis=0), np.diff(ycof[0]))
         # print(score1, score2)
         self._dc_score = min(score1, score2)
+
         if self._dc_score > 0.7:  # thresh
             reg.fit(Xcof[0], ycof[0])
         else:
             reg.fit(np.diff(Xcof[0],axis=0), np.diff(ycof[0]))
-            reg.adjust_intercept(Xcof[0], ycof[0])
+            reg.adjust_coef(Xcof[0], ycof[0], slope=False)
+
+        # reg = Stat.PCRegression(loss=1e-3, n_components=None, reg_name='ridge', **kwargs)
+        # # # forced non-stationary
+        # # reg.fit(Xcof[0], ycof[0])
+        # #
+        # # or forced stationary by derivative
+        # reg.fit(np.diff(Xcof[0],axis=0), np.diff(ycof[0]))
+        # reg.adjust_coef(Xcof[0], ycof[0], slope=False)
+        # # reg.adjust_intercept(Xcof[0], ycof[0])
+
         self._regs.append(reg)
         self.n_coefs_.append(reg.n_components)
+
+        # reg = Stat.PCRegression(loss=None, n_components=2, reg_name='lr', fit_intercept=True, **kwargs)
+        # nta = Xcof[0].shape[0]
+        # ltrd = np.arange(nta) / nta * 0.01
+        # xvar = np.hstack([Xcof[0], ltrd[:,np.newaxis]])
+        # print(Xcof[0].shape, xvar.shape)
+        # yvar = ycof[0]
+        # reg.fit(xvar, yvar)
+        # self._regs.append(reg)
+        # self.n_coefs_.append(reg.n_components)
 
         # regression of the ac components
         if self.mode=='full':
@@ -646,7 +671,15 @@ class MRA_Regression:
                 yprc.append(reg.predict(cX))
         elif self.mode=='acdc':
             # toto = self._regs[0].predict(Xcof[0]); yprc.append(np.zeros_like(toto))
+
             yprc.append(self._regs[0].predict(Xcof[0]))
+
+            # nta = Xcof[0].shape[0]
+            # # ltrd = np.atleast_2d(np.arange(nta)).T
+            # # xvar = np.hstack([Xcof[0], ltrd])
+            # xvar = np.hstack([Xcof[0], np.zeros((nta,1))])
+            # # print(Xcof[0].shape, xvar.shape)
+            # yprc.append(self._regs[0].predict(xvar))
 
             if len(Xcof) > 1:
                 Xdcf = np.concatenate(Xcof[1:], axis=0)

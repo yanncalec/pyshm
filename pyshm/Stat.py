@@ -1219,8 +1219,19 @@ class PCRegression:
 
         return yprd
 
-    def adjust_intercept(self, X0, y0):
-        self.intercept_ = np.mean(y0 - self.predict(X0))
+    # def adjust_intercept(self, X0, y0):
+    #     self.intercept_ = np.mean(y0 - self.predict(X0))
+
+    def adjust_coef(self, X0, y0, slope=False):
+        if slope:
+            yprd = X0 @ self.coef_
+            # yprd[np.isnan(yprd)] = 0
+            # y1 = y0.copy(); y1[np.isnan(y1)] = 0
+            fct = np.cov(y0, yprd)[0,1] / np.var(yprd)
+            print(fct)
+            self.coef_ *= fct
+        self.intercept_ = np.mean(y0 - X0 @ self.coef_)
+        # self.intercept_ = np.mean(y0 - self.predict(X0))
 
     def score(self, X0, y0):
         self.fit(X0, y0)
