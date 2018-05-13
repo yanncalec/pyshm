@@ -16,9 +16,6 @@ Contents:
     intro
 
 
-This document describes the python library pyshm developped by
-`Sivienn <http://www.sivienn.com/>`_ for `Osmos <http://www.osmos-group.com/>`_.
-
 .. automodule:: pyshm.Models
     :members:
 

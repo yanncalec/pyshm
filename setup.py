@@ -38,7 +38,7 @@ with open(os.path.join(current_path, 'README.rst'), encoding='utf-8') as f:
 
 # Strange behavior of Cython:
 # if a full list of pyx filenames are given instead of the wildcard *, Cython will build a module using the keyword name (if not given, using the first filename) which includes all .so
-# It seems impossible to combine two wildcards: ["pyshm/*.pyx", "pyshm/OSMOS_pkg/*.pyx"] is not accepted
+# It seems impossible to combine two wildcards: ["pyshm/*.pyx", "pyshm/xxx_pkg/*.pyx"] is not accepted
 # Note that the name of the extension must be the same as sources
 
 # This works: one module <-> one .so
@@ -88,11 +88,11 @@ setup(
     long_description=long_description,
 
     # The project's main homepage.
-    # url='https://github.com/sivienn/pyshm',
+    # url=,
 
     # Author details
     author='Han Wang',
-    author_email='han@sivienn.com',
+    author_email='yann.calec@yandex.com',
 
     # Choose your license
     license='Copyright',
